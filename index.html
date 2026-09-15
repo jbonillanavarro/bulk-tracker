@@ -193,6 +193,28 @@ function computeTargetSuggestion(allDays, targetKcal) {
   return null;
 }
 
+// Proyección de peso a 4 semanas, calculada de forma transparente: toma la tasa real de cambio
+// (primera y última pesada de los últimos ~14 días) y la extrapola linealmente. No es un modelo
+// predictivo ni tiene en cuenta cambios futuros de hábitos — es solo "si sigues al ritmo actual".
+function computeWeightProjection(weightHistory) {
+  if (weightHistory.length === 0) return null;
+  const today = todayStr();
+  const windowStart = addDays(today, -13);
+  const recent = weightHistory.filter((w) => w.date >= windowStart);
+  if (recent.length < 2) return null;
+  const first = recent[0];
+  const last = recent[recent.length - 1];
+  const daySpan = dateDiffDays(first.date, last.date);
+  if (daySpan < 10) return null;
+  const ratePerWeek = round((last.value - first.value) / (daySpan / 7), 2);
+  const currentValue = weightHistory[weightHistory.length - 1].value;
+  const currentDate = weightHistory[weightHistory.length - 1].date;
+  const horizonWeeks = 4;
+  const projectedDate = addDays(currentDate, horizonWeeks * 7);
+  const projectedValue = round(currentValue + ratePerWeek * horizonWeeks, 1);
+  return { ratePerWeek, currentValue, currentDate, projectedDate, projectedValue, horizonWeeks };
+}
+
 function loadAll() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -571,6 +593,7 @@ function App() {
   }, [weightHistory]);
 
   const targetSuggestion = useMemo(() => computeTargetSuggestion(allDays, targets.kcal), [allDays, targets.kcal]);
+  const weightProjection = useMemo(() => computeWeightProjection(weightHistory), [weightHistory]);
 
   const isToday = currentDate === todayStr();
 
@@ -615,6 +638,7 @@ function App() {
             weightHistory={weightHistory} avg7={avg7} allDays={allDays} dailyKcalHistory={dailyKcalHistory} targets={targets}
             targetSuggestion={suggestionDismissed ? null : targetSuggestion}
             handleApplySuggestion={handleApplySuggestion} handleDiscardSuggestion={handleDiscardSuggestion}
+            weightProjection={weightProjection}
           />
         )}
 
@@ -930,7 +954,7 @@ function MacroPill({ label, value, target, unit }) {
   );
 }
 
-function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory, targets, targetSuggestion, handleApplySuggestion, handleDiscardSuggestion }) {
+function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory, targets, targetSuggestion, handleApplySuggestion, handleDiscardSuggestion, weightProjection }) {
   if (weightHistory.length === 0) {
     return (
       <div style={styles.emptyState}>
@@ -979,7 +1003,13 @@ function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory, targets, 
       </div>
       <section style={styles.card}>
         <div style={styles.cardHeaderRow}><span style={styles.cardTitle}>Peso — últimas {weightHistory.length} pesadas</span></div>
-        <WeightLineChart data={weightHistory} />
+        <WeightLineChart data={weightHistory} projection={weightProjection} />
+        {weightProjection && (
+          <p style={styles.projectionNote}>
+            A este ritmo ({weightProjection.ratePerWeek >= 0 ? "+" : ""}{weightProjection.ratePerWeek} kg/semana de los últimos ~14 días),
+            en {weightProjection.horizonWeeks} semanas ({formatDateLabel(weightProjection.projectedDate)}) pesarías ~{weightProjection.projectedValue} kg.
+          </p>
+        )}
       </section>
       {recentKcal.length > 0 && (
         <section style={styles.card}>
@@ -1001,26 +1031,39 @@ function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory, targets, 
   );
 }
 
-function WeightLineChart({ data }) {
+function WeightLineChart({ data, projection }) {
   const width = 320, height = 150, padTop = 22, padBottom = 22, padX = 8;
+  const plotWidth = width - padX * 2;
+  const historicalWidth = projection ? plotWidth * 0.78 : plotWidth;
   const values = data.map((d) => d.value);
-  const rawMin = Math.min(...values), rawMax = Math.max(...values);
+  const allValues = projection ? [...values, projection.projectedValue] : values;
+  const rawMin = Math.min(...allValues), rawMax = Math.max(...allValues);
   const pad = (rawMax - rawMin) * 0.15 || 1;
   const min = rawMin - pad, max = rawMax + pad;
   const range = max - min || 1;
   const points = data.map((d, i) => {
-    const x = data.length === 1 ? width / 2 : padX + (i / (data.length - 1)) * (width - padX * 2);
+    const x = data.length === 1 ? padX + historicalWidth / 2 : padX + (i / (data.length - 1)) * historicalWidth;
     const y = padTop + (1 - (d.value - min) / range) * (height - padTop - padBottom);
     return { x, y, value: d.value, date: d.date };
   });
   const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${round(p.x, 1)} ${round(p.y, 1)}`).join(" ");
   const areaPath = `${linePath} L ${round(points[points.length - 1].x, 1)} ${height - padBottom} L ${round(points[0].x, 1)} ${height - padBottom} Z`;
   const showEvery = data.length > 8 ? Math.ceil(data.length / 6) : 1;
+  const lastPoint = points[points.length - 1];
+  const projectedPoint = projection
+    ? { x: padX + plotWidth, y: padTop + (1 - (projection.projectedValue - min) / range) * (height - padTop - padBottom) }
+    : null;
+  const projectionPath = projectedPoint
+    ? `M ${round(lastPoint.x, 1)} ${round(lastPoint.y, 1)} L ${round(projectedPoint.x, 1)} ${round(projectedPoint.y, 1)}`
+    : null;
   return (
     <div>
       <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", overflow: "visible" }} role="img" aria-label="Gráfico de evolución del peso">
         <path d={areaPath} fill="#E2A63B" opacity="0.08" />
         <path d={linePath} fill="none" stroke="#E2A63B" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        {projectionPath && (
+          <path d={projectionPath} fill="none" stroke="#9AA0AB" strokeWidth="2" strokeDasharray="4 3" strokeLinecap="round" />
+        )}
         {points.map((p, i) => (
           <g key={i}>
             <circle cx={p.x} cy={p.y} r={i === points.length - 1 ? 4 : 2.5} fill="#E2A63B" />
@@ -1029,10 +1072,13 @@ function WeightLineChart({ data }) {
             )}
           </g>
         ))}
+        {projectedPoint && <circle cx={projectedPoint.x} cy={projectedPoint.y} r="3" fill="none" stroke="#9AA0AB" strokeWidth="1.5" />}
       </svg>
       <div style={styles.chartAxisRow}>
         <span style={styles.chartAxisLabel}>{formatDateLabel(data[0].date)}</span>
-        <span style={styles.chartAxisLabel}>{formatDateLabel(data[data.length - 1].date)}</span>
+        <span style={styles.chartAxisLabel}>
+          {formatDateLabel(data[data.length - 1].date)}{projection ? ` · proyección a ${formatDateLabel(projection.projectedDate)}` : ""}
+        </span>
       </div>
     </div>
   );
@@ -1138,6 +1184,7 @@ const styles = {
   macroPillFill: { height: "100%", background: "#4F9B8C", borderRadius: 4 },
   card: { background: "#1D2025", borderRadius: 12, padding: 14, marginBottom: 12 },
   suggestionCard: { background: "#1D2025", borderRadius: 12, padding: 14, marginBottom: 12, border: "1px solid #E2A63B" },
+  projectionNote: { color: "#9AA0AB", fontSize: 11, marginTop: 8, lineHeight: 1.4 },
   cardHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   cardTitle: { color: "#F3F1EC", fontSize: 14, fontWeight: 600 },
   cardMeta: { color: "#6C7280", fontSize: 11, marginTop: 6 },

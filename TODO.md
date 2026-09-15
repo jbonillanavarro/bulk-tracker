@@ -16,7 +16,8 @@ Roadmap de funciones pendientes y completadas. Al terminar una tarea, márcala c
 
 ## Fase 2 — Inteligencia sobre los datos
 
-- [ ] Proyección de tendencia de peso a futuro, calculada de forma transparente a partir de la tasa de cambio real de las últimas semanas (no un modelo de caja negra ni una predicción fija a 1 año). Mostrar el cálculo/supuestos usados, no solo el número final. Debe recalcularse automáticamente según se añaden más datos.
+- [x] Proyección de tendencia de peso a futuro, calculada de forma transparente a partir de la tasa de cambio real de las últimas semanas (no un modelo de caja negra ni una predicción fija a 1 año). Mostrar el cálculo/supuestos usados, no solo el número final. Debe recalcularse automáticamente según se añaden más datos. (hecho 2026-09-15)
+  Horizonte de 4 semanas (decidido con el usuario). En el gráfico de peso de Progreso: si hay al menos 2 pesadas en los últimos 14 días separadas ≥10 días, se calcula la tasa real (kg/semana) entre la primera y la última de ese tramo y se extrapola linealmente desde la pesada más reciente. Se muestra como continuación discontinua de la línea del gráfico (con un punto hueco al final) y como texto explícito: "A este ritmo (+X kg/semana...), en 4 semanas (fecha) pesarías ~Y kg". Sin datos suficientes, no se muestra nada (no rompe ni inventa cifras). Se recalcula automáticamente en cada render vía useMemo sobre weightHistory. Verificado con 3 ejemplos numéricos a mano (subida moderada, pérdida rápida, datos insuficientes → sin proyección) y con la geometría del SVG (el punto proyectado cae dentro del viewBox en todos los casos).
 - [ ] Marcar visualmente en el historial los días que se desvían del plan (déficit calórico significativo, sin entreno, sueño insuficiente) y mostrar una correlación simple con la evolución del peso de los días siguientes (no causalidad estricta, solo una observación descriptiva)
 
 ## Fase 3 — Asistente activo
