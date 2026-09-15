@@ -110,12 +110,10 @@ const Check = createLucideIcon(lucide.Check);
 const Download = createLucideIcon(lucide.Download);
 const Upload = createLucideIcon(lucide.Upload);
 
-const TARGET_KCAL = 2950;
-const TARGET_PROTEIN = 105;
-const TARGET_FAT = 65;
-const TARGET_CARBS = 475;
+const DEFAULT_TARGETS = { kcal: 2950, protein: 105, fat: 65, carbs: 475 };
 const STORAGE_KEY = "bulk-tracker-data";
 const API_KEY_STORAGE = "bulk-tracker-api-key";
+const TARGETS_STORAGE = "bulk-tracker-targets";
 
 const EXERCISE_TYPES = [
   "Pierna",
@@ -146,6 +144,54 @@ function round(n, dec = 0) {
   return Math.round((Number(n) || 0) * f) / f;
 }
 function emptyDay(date) { return { date, weight: null, foods: [], exercise: null }; }
+function dateDiffDays(a, b) {
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  const da = new Date(ay, am - 1, ad);
+  const db = new Date(by, bm - 1, bd);
+  return Math.round((db - da) / 86400000);
+}
+
+// Sugerencia de ajuste de objetivo calórico, transparente y basada en dos señales de las últimas 2 semanas:
+// tasa real de cambio de peso (ISSN: ritmo sano de bulking ~0.25-0.5%/semana; >0.7-0.8 kg/semana es demasiado rápido)
+// y si se ha sostenido el objetivo calórico actual (±10%). Nunca se aplica sola: solo se sugiere.
+function computeTargetSuggestion(allDays, targetKcal) {
+  const today = todayStr();
+  const windowStart = addDays(today, -13);
+  const weightsInWindow = allDays
+    .filter((d) => d.date >= windowStart && d.date <= today && d.weight)
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  if (weightsInWindow.length < 2) return null;
+  const first = weightsInWindow[0];
+  const last = weightsInWindow[weightsInWindow.length - 1];
+  const daySpan = dateDiffDays(first.date, last.date);
+  if (daySpan < 10) return null;
+  const deltaKg = last.weight.value - first.weight.value;
+  const ratePerWeek = deltaKg / (daySpan / 7);
+
+  if (ratePerWeek >= 0.8) {
+    return { type: "decrease", deltaKcal: -200, deltaCarbs: -50, ratePerWeek: round(ratePerWeek, 2) };
+  }
+
+  const loggedDays = allDays.filter((d) => d.date >= windowStart && d.date <= today && d.foods.length > 0);
+  if (loggedDays.length < 10) return null;
+  const adherentDays = loggedDays.filter((d) => {
+    const kcal = d.foods.reduce((a, f) => a + (Number(f.kcal) || 0), 0);
+    return kcal >= targetKcal * 0.9 && kcal <= targetKcal * 1.1;
+  });
+  const adherenceRatio = adherentDays.length / loggedDays.length;
+
+  if (ratePerWeek <= 0.15 && adherenceRatio >= 0.7) {
+    return {
+      type: "increase",
+      deltaKcal: 200,
+      deltaCarbs: 50,
+      ratePerWeek: round(ratePerWeek, 2),
+      adherenceRatio: round(adherenceRatio * 100),
+    };
+  }
+  return null;
+}
 
 function loadAll() {
   try {
@@ -175,6 +221,27 @@ function saveApiKey(key) {
     return true;
   } catch (e) { return false; }
 }
+function loadTargets() {
+  try {
+    const raw = localStorage.getItem(TARGETS_STORAGE);
+    if (!raw) return { ...DEFAULT_TARGETS };
+    const parsed = JSON.parse(raw);
+    return {
+      kcal: Number(parsed.kcal) > 0 ? Number(parsed.kcal) : DEFAULT_TARGETS.kcal,
+      protein: Number(parsed.protein) > 0 ? Number(parsed.protein) : DEFAULT_TARGETS.protein,
+      fat: Number(parsed.fat) > 0 ? Number(parsed.fat) : DEFAULT_TARGETS.fat,
+      carbs: Number(parsed.carbs) > 0 ? Number(parsed.carbs) : DEFAULT_TARGETS.carbs,
+    };
+  } catch (e) {
+    return { ...DEFAULT_TARGETS };
+  }
+}
+function saveTargets(t) {
+  try {
+    localStorage.setItem(TARGETS_STORAGE, JSON.stringify(t));
+    return true;
+  } catch (e) { return false; }
+}
 
 function App() {
   const [activeTab, setActiveTab] = useState("hoy");
@@ -188,6 +255,15 @@ function App() {
 
   const [importError, setImportError] = useState("");
   const [importSuccess, setImportSuccess] = useState(false);
+
+  const [targets, setTargets] = useState(() => loadTargets());
+  const [targetsDraft, setTargetsDraft] = useState(() => {
+    const t = loadTargets();
+    return { kcal: String(t.kcal), protein: String(t.protein), fat: String(t.fat), carbs: String(t.carbs) };
+  });
+  const [targetsError, setTargetsError] = useState("");
+  const [targetsSaved, setTargetsSaved] = useState(false);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
 
   const [foodName, setFoodName] = useState("");
   const [foodKcal, setFoodKcal] = useState("");
@@ -227,6 +303,10 @@ function App() {
     setFoodError("");
   }, [currentDate]);
 
+  useEffect(() => {
+    setTargetsDraft({ kcal: String(targets.kcal), protein: String(targets.protein), fat: String(targets.fat), carbs: String(targets.carbs) });
+  }, [targets]);
+
   const persist = (nextData) => {
     setError("");
     const ok = saveAll(nextData);
@@ -255,8 +335,8 @@ function App() {
     );
   }, [dayData]);
 
-  const kcalPct = Math.min(100, round((totals.kcal / TARGET_KCAL) * 100));
-  const kcalRemaining = TARGET_KCAL - totals.kcal;
+  const kcalPct = Math.min(100, round((totals.kcal / targets.kcal) * 100));
+  const kcalRemaining = targets.kcal - totals.kcal;
 
   const resetFoodForm = () => {
     setFoodName(""); setFoodKcal(""); setFoodProtein(""); setFoodFat(""); setFoodCarbs("");
@@ -397,6 +477,38 @@ function App() {
     setApiKey("");
   };
 
+  const handleSaveTargets = (e) => {
+    e.preventDefault();
+    const kcal = Number(targetsDraft.kcal);
+    const protein = Number(targetsDraft.protein);
+    const fat = Number(targetsDraft.fat);
+    const carbs = Number(targetsDraft.carbs);
+    if (!(kcal > 0 && protein > 0 && fat > 0 && carbs > 0)) {
+      setTargetsError("Todos los objetivos deben ser números mayores que 0.");
+      return;
+    }
+    setTargetsError("");
+    const next = { kcal: round(kcal), protein: round(protein), fat: round(fat), carbs: round(carbs) };
+    setTargets(next);
+    saveTargets(next);
+    setTargetsSaved(true);
+    setTimeout(() => setTargetsSaved(false), 2000);
+  };
+
+  const handleApplySuggestion = () => {
+    if (!targetSuggestion) return;
+    const next = {
+      ...targets,
+      kcal: round(targets.kcal + targetSuggestion.deltaKcal),
+      carbs: round(targets.carbs + targetSuggestion.deltaCarbs),
+    };
+    setTargets(next);
+    saveTargets(next);
+    setSuggestionDismissed(true);
+  };
+
+  const handleDiscardSuggestion = () => setSuggestionDismissed(true);
+
   const handleExportBackup = () => {
     const blob = new Blob([JSON.stringify(allData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -458,6 +570,8 @@ function App() {
     return round(last7.reduce((a, b) => a + b.value, 0) / last7.length, 1);
   }, [weightHistory]);
 
+  const targetSuggestion = useMemo(() => computeTargetSuggestion(allDays, targets.kcal), [allDays, targets.kcal]);
+
   const isToday = currentDate === todayStr();
 
   return (
@@ -475,7 +589,7 @@ function App() {
         {activeTab === "hoy" && (
           <HoyTab
             currentDate={currentDate} setCurrentDate={setCurrentDate} isToday={isToday}
-            dayData={dayData} totals={totals} kcalPct={kcalPct} kcalRemaining={kcalRemaining}
+            dayData={dayData} totals={totals} kcalPct={kcalPct} kcalRemaining={kcalRemaining} targets={targets}
             weightInput={weightInput} setWeightInput={setWeightInput} weightError={weightError} handleSaveWeight={handleSaveWeight}
             foodName={foodName} setFoodName={setFoodName}
             foodKcal={foodKcal} setFoodKcal={setFoodKcal}
@@ -497,7 +611,11 @@ function App() {
         )}
 
         {activeTab === "progreso" && (
-          <ProgresoTab weightHistory={weightHistory} avg7={avg7} allDays={allDays} dailyKcalHistory={dailyKcalHistory} />
+          <ProgresoTab
+            weightHistory={weightHistory} avg7={avg7} allDays={allDays} dailyKcalHistory={dailyKcalHistory} targets={targets}
+            targetSuggestion={suggestionDismissed ? null : targetSuggestion}
+            handleApplySuggestion={handleApplySuggestion} handleDiscardSuggestion={handleDiscardSuggestion}
+          />
         )}
 
         {activeTab === "historial" && (
@@ -526,6 +644,41 @@ function App() {
                 <X size={18} color="#9AA0AB" />
               </button>
             </div>
+            <span style={styles.cardTitle}>Objetivos nutricionales</span>
+            <p style={styles.settingsBody}>
+              Los objetivos que se usan en Hoy y Progreso. Ajústalos cuando lo necesites — no se pierden datos anteriores al cambiarlos.
+            </p>
+            <form onSubmit={handleSaveTargets}>
+              <div style={styles.macroInputRow}>
+                <div style={styles.macroInputCol}>
+                  <label style={styles.smallLabel}>kcal</label>
+                  <input type="number" inputMode="numeric" value={targetsDraft.kcal}
+                    onChange={(e) => setTargetsDraft({ ...targetsDraft, kcal: e.target.value })} style={{ width: "100%" }} />
+                </div>
+                <div style={styles.macroInputCol}>
+                  <label style={styles.smallLabel}>prot g</label>
+                  <input type="number" inputMode="numeric" value={targetsDraft.protein}
+                    onChange={(e) => setTargetsDraft({ ...targetsDraft, protein: e.target.value })} style={{ width: "100%" }} />
+                </div>
+                <div style={styles.macroInputCol}>
+                  <label style={styles.smallLabel}>gras g</label>
+                  <input type="number" inputMode="numeric" value={targetsDraft.fat}
+                    onChange={(e) => setTargetsDraft({ ...targetsDraft, fat: e.target.value })} style={{ width: "100%" }} />
+                </div>
+                <div style={styles.macroInputCol}>
+                  <label style={styles.smallLabel}>carb g</label>
+                  <input type="number" inputMode="numeric" value={targetsDraft.carbs}
+                    onChange={(e) => setTargetsDraft({ ...targetsDraft, carbs: e.target.value })} style={{ width: "100%" }} />
+                </div>
+              </div>
+              {targetsError && <div style={styles.fieldError}>{targetsError}</div>}
+              <button className="bt-btn-primary" type="submit" style={{ width: "100%", marginTop: 10 }}>
+                {targetsSaved ? <><Check size={15} /> Guardados</> : "Guardar objetivos"}
+              </button>
+            </form>
+
+            <div style={styles.settingsDivider} />
+
             <p style={styles.settingsBody}>
               Clave de API de Anthropic (opcional) — solo hace falta si quieres estimar calorías a partir de una foto.
               Se guarda únicamente en este dispositivo.
@@ -579,7 +732,7 @@ function App() {
 
 function HoyTab(props) {
   const {
-    currentDate, setCurrentDate, isToday, dayData, totals, kcalPct, kcalRemaining,
+    currentDate, setCurrentDate, isToday, dayData, totals, kcalPct, kcalRemaining, targets,
     weightInput, setWeightInput, weightError, handleSaveWeight,
     foodName, setFoodName, foodKcal, setFoodKcal, foodProtein, setFoodProtein,
     foodFat, setFoodFat, foodCarbs, setFoodCarbs, foodError, handleAddFood, handleDeleteFood,
@@ -605,7 +758,7 @@ function HoyTab(props) {
 
       <div style={styles.hero}>
         <div className="bt-num" style={styles.heroKcal}>{round(totals.kcal).toLocaleString("es-ES")}</div>
-        <div style={styles.heroSub}>de {TARGET_KCAL.toLocaleString("es-ES")} kcal</div>
+        <div style={styles.heroSub}>de {targets.kcal.toLocaleString("es-ES")} kcal</div>
         <div style={styles.gaugeTrack}>
           <div style={{ ...styles.gaugeFill, width: `${kcalPct}%`, background: kcalPct >= 100 ? "#4F9B8C" : "#E2A63B" }} />
         </div>
@@ -617,9 +770,9 @@ function HoyTab(props) {
       </div>
 
       <div style={styles.macroRow}>
-        <MacroPill label="Prot" value={totals.protein} target={TARGET_PROTEIN} unit="g" />
-        <MacroPill label="Gras" value={totals.fat} target={TARGET_FAT} unit="g" />
-        <MacroPill label="Carb" value={totals.carbs} target={TARGET_CARBS} unit="g" />
+        <MacroPill label="Prot" value={totals.protein} target={targets.protein} unit="g" />
+        <MacroPill label="Gras" value={totals.fat} target={targets.fat} unit="g" />
+        <MacroPill label="Carb" value={totals.carbs} target={targets.carbs} unit="g" />
       </div>
 
       <section style={styles.card}>
@@ -777,7 +930,7 @@ function MacroPill({ label, value, target, unit }) {
   );
 }
 
-function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory }) {
+function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory, targets, targetSuggestion, handleApplySuggestion, handleDiscardSuggestion }) {
   if (weightHistory.length === 0) {
     return (
       <div style={styles.emptyState}>
@@ -791,6 +944,29 @@ function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory }) {
   const recentKcal = dailyKcalHistory.slice(-14);
   return (
     <div>
+      {targetSuggestion && (
+        <section style={styles.suggestionCard}>
+          <div style={styles.cardHeaderRow}><span style={styles.cardTitle}>Sugerencia de ajuste</span></div>
+          {targetSuggestion.type === "increase" ? (
+            <p style={styles.settingsBody}>
+              En las últimas 2 semanas has cumplido tu objetivo de {targets.kcal.toLocaleString("es-ES")} kcal
+              ({targetSuggestion.adherenceRatio}% de los días registrados dentro de ±10%), pero tu peso apenas ha cambiado
+              ({targetSuggestion.ratePerWeek >= 0 ? "+" : ""}{targetSuggestion.ratePerWeek} kg/semana). Podría tocar subir
+              el objetivo unas +{targetSuggestion.deltaKcal} kcal (principalmente vía carbohidratos, ~+{targetSuggestion.deltaCarbs}g).
+            </p>
+          ) : (
+            <p style={styles.settingsBody}>
+              En las últimas 2 semanas tu peso ha subido {targetSuggestion.ratePerWeek} kg/semana, más rápido de lo recomendado
+              para un bulking limpio (máx. recomendado ~0,7-0,8 kg/semana). Podría tocar bajar el objetivo unas
+              {" "}{Math.abs(targetSuggestion.deltaKcal)} kcal (~{Math.abs(targetSuggestion.deltaCarbs)}g menos de carbohidratos).
+            </p>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button className="bt-btn-primary" style={{ flex: 1 }} onClick={handleApplySuggestion}>Aplicar</button>
+            <button className="bt-btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={handleDiscardSuggestion}>Ignorar</button>
+          </div>
+        </section>
+      )}
       <div style={styles.statsRow}>
         <div style={styles.statCard}>
           <div style={styles.statLabel}>Media 7 pesadas</div>
@@ -808,7 +984,7 @@ function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory }) {
       {recentKcal.length > 0 && (
         <section style={styles.card}>
           <div style={styles.cardHeaderRow}><span style={styles.cardTitle}>Calorías — últimos {recentKcal.length} días registrados</span></div>
-          <KcalBarChart data={recentKcal} target={TARGET_KCAL} />
+          <KcalBarChart data={recentKcal} target={targets.kcal} />
         </section>
       )}
       <div style={styles.statsRow}>
@@ -961,6 +1137,7 @@ const styles = {
   macroPillTrack: { height: 4, background: "#2C3038", borderRadius: 4, overflow: "hidden" },
   macroPillFill: { height: "100%", background: "#4F9B8C", borderRadius: 4 },
   card: { background: "#1D2025", borderRadius: 12, padding: 14, marginBottom: 12 },
+  suggestionCard: { background: "#1D2025", borderRadius: 12, padding: 14, marginBottom: 12, border: "1px solid #E2A63B" },
   cardHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   cardTitle: { color: "#F3F1EC", fontSize: 14, fontWeight: 600 },
   cardMeta: { color: "#6C7280", fontSize: 11, marginTop: 6 },
