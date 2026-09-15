@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Bulk Tracker</title>
+<meta name="theme-color" content="#15171B" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Bulk" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon-192.png" />
+
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script crossorigin src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.min.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap');
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #0E0F12; font-family: 'Inter', sans-serif; }
+  #root { min-height: 100vh; display: flex; flex-direction: column; }
+  .bt-num { font-family: 'Bebas Neue', 'Inter', sans-serif; letter-spacing: 0.5px; }
+  input, select, textarea {
+    font-family: 'Inter', sans-serif;
+    background: #23262C;
+    border: 1px solid #2C3038;
+    color: #F3F1EC;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 14px;
+    outline: none;
+  }
+  input::placeholder, textarea::placeholder { color: #6C7280; }
+  input:focus, select:focus, textarea:focus { border-color: #E2A63B; }
+  button { cursor: pointer; font-family: 'Inter', sans-serif; }
+  .bt-btn-primary {
+    background: #E2A63B; color: #2A1B05; border: none; border-radius: 8px;
+    padding: 10px 14px; font-size: 14px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .bt-btn-primary:active { transform: scale(0.98); }
+  .bt-btn-primary:disabled { opacity: 0.5; }
+  .bt-btn-ghost {
+    background: transparent; color: #9AA0AB; border: 1px solid #2C3038;
+    border-radius: 8px; padding: 8px 12px; font-size: 13px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .bt-tab-btn {
+    flex: 1; background: transparent; border: none; color: #6C7280;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 0 6px; font-size: 11px;
+  }
+  .bt-tab-btn.active { color: #E2A63B; }
+  @keyframes bt-spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="root">
+  <div style="color:#9AA0AB;font-family:sans-serif;padding:40px 20px;text-align:center;">Cargando…</div>
+</div>
+<div id="fatal-error" style="display:none;color:#E29282;font-family:sans-serif;padding:20px;background:#1D2025;margin:16px;border-radius:12px;font-size:13px;line-height:1.5;"></div>
+<script>
+  window.addEventListener('error', function (e) {
+    var box = document.getElementById('fatal-error');
+    if (box) {
+      box.style.display = 'block';
+      box.textContent = 'Error al cargar la app: ' + (e.message || 'error desconocido') + '. Recarga la página; si persiste, revisa la conexión.';
+    }
+  });
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+
+// `lucide` (loaded via the <script> tag above) is the vanilla-JS icon package: each
+// icon is a plain [tag, attrs, children] node, not a React component. Wrap them so
+// they can be used as JSX (<Plus size={16} />) like lucide-react components.
+function kebabToCamel(str) { return str.replace(/-([a-z])/g, (_, c) => c.toUpperCase()); }
+function convertAttrs(attrs) {
+  const out = {};
+  for (const key in attrs) out[kebabToCamel(key)] = attrs[key];
+  return out;
+}
+function renderLucideNode([tag, attrs = {}, children = []], key) {
+  return React.createElement(tag, { key, ...convertAttrs(attrs) }, children.map((c, i) => renderLucideNode(c, i)));
+}
+function createLucideIcon(iconNode) {
+  return function LucideIcon({ size = 24, color = "currentColor", strokeWidth = 2, style, ...rest }) {
+    const [tag, attrs = {}, children = []] = iconNode;
+    const mergedAttrs = { ...convertAttrs(attrs), width: size, height: size, stroke: color, strokeWidth, style, ...rest };
+    return React.createElement(tag, mergedAttrs, children.map((c, i) => renderLucideNode(c, i)));
+  };
+}
+const Plus = createLucideIcon(lucide.Plus);
+const Trash2 = createLucideIcon(lucide.Trash2);
+const ChevronLeft = createLucideIcon(lucide.ChevronLeft);
+const ChevronRight = createLucideIcon(lucide.ChevronRight);
+const Dumbbell = createLucideIcon(lucide.Dumbbell);
+const Flame = createLucideIcon(lucide.Flame);
+const TrendingUp = createLucideIcon(lucide.TrendingUp);
+const CalendarDays = createLucideIcon(lucide.CalendarDays);
+const Loader2 = createLucideIcon(lucide.Loader2);
+const Camera = createLucideIcon(lucide.Camera);
+const X = createLucideIcon(lucide.X);
+const Settings = createLucideIcon(lucide.Settings);
+const Check = createLucideIcon(lucide.Check);
+
+const TARGET_KCAL = 2950;
+const TARGET_PROTEIN = 105;
+const TARGET_FAT = 65;
+const TARGET_CARBS = 475;
+const STORAGE_KEY = "bulk-tracker-data";
+const API_KEY_STORAGE = "bulk-tracker-api-key";
+
+const EXERCISE_TYPES = [
+  "Pierna",
+  "Empuje (Pecho/Hombro/Tríceps)",
+  "Tirón (Espalda/Bíceps)",
+  "Pierna + Hombros",
+  "Descanso / cardio suave",
+];
+
+function pad(n) { return String(n).padStart(2, "0"); }
+function toDateStr(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function todayStr() { return toDateStr(new Date()); }
+function nowTimeStr() { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function addDays(dateStr, delta) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + delta);
+  return toDateStr(dt);
+}
+function formatDateLabel(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  const label = dt.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+function round(n, dec = 0) {
+  const f = Math.pow(10, dec);
+  return Math.round((Number(n) || 0) * f) / f;
+}
+function emptyDay(date) { return { date, weight: null, foods: [], exercise: null }; }
+
+function loadAll() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    console.error("Error leyendo datos guardados", e);
+    return {};
+  }
+}
+function saveAll(data) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    return true;
+  } catch (e) {
+    console.error("Error guardando datos", e);
+    return false;
+  }
+}
+function loadApiKey() {
+  try { return localStorage.getItem(API_KEY_STORAGE) || ""; } catch (e) { return ""; }
+}
+function saveApiKey(key) {
+  try {
+    if (key) localStorage.setItem(API_KEY_STORAGE, key);
+    else localStorage.removeItem(API_KEY_STORAGE);
+    return true;
+  } catch (e) { return false; }
+}
+
+function App() {
+  const [activeTab, setActiveTab] = useState("hoy");
+  const [currentDate, setCurrentDate] = useState(todayStr());
+  const [allData, setAllData] = useState(() => loadAll());
+  const [error, setError] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+  const [apiKey, setApiKey] = useState(() => loadApiKey());
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [apiKeySaved, setApiKeySaved] = useState(false);
+
+  const [foodName, setFoodName] = useState("");
+  const [foodKcal, setFoodKcal] = useState("");
+  const [foodProtein, setFoodProtein] = useState("");
+  const [foodFat, setFoodFat] = useState("");
+  const [foodCarbs, setFoodCarbs] = useState("");
+  const [foodError, setFoodError] = useState("");
+
+  const [weightInput, setWeightInput] = useState("");
+  const [weightError, setWeightError] = useState("");
+
+  const [exerciseType, setExerciseType] = useState("");
+  const [exerciseNotes, setExerciseNotes] = useState("");
+
+  const [foodMode, setFoodMode] = useState("manual");
+  const [photoData, setPhotoData] = useState(null);
+  const [photoWeight, setPhotoWeight] = useState("");
+  const [estimating, setEstimating] = useState(false);
+  const [estimateError, setEstimateError] = useState("");
+  const [estimatedFlag, setEstimatedFlag] = useState(false);
+
+  const dayData = allData[currentDate] || emptyDay(currentDate);
+
+  useEffect(() => {
+    const d = allData[currentDate];
+    setWeightInput(d && d.weight ? String(d.weight.value) : "");
+    if (d && d.exercise) {
+      setExerciseType(d.exercise.type);
+      setExerciseNotes(d.exercise.notes || "");
+    } else {
+      setExerciseType("");
+      setExerciseNotes("");
+    }
+    setWeightError("");
+    setFoodError("");
+  }, [currentDate]);
+
+  const persist = (nextData) => {
+    setError("");
+    const ok = saveAll(nextData);
+    if (!ok) setError("No se pudo guardar en este dispositivo. Comprueba el espacio de almacenamiento.");
+  };
+
+  const updateDay = (date, updater) => {
+    setAllData((prev) => {
+      const current = prev[date] || emptyDay(date);
+      const updated = updater(current);
+      const next = { ...prev, [date]: updated };
+      persist(next);
+      return next;
+    });
+  };
+
+  const totals = useMemo(() => {
+    return dayData.foods.reduce(
+      (acc, f) => ({
+        kcal: acc.kcal + (Number(f.kcal) || 0),
+        protein: acc.protein + (Number(f.protein) || 0),
+        fat: acc.fat + (Number(f.fat) || 0),
+        carbs: acc.carbs + (Number(f.carbs) || 0),
+      }),
+      { kcal: 0, protein: 0, fat: 0, carbs: 0 }
+    );
+  }, [dayData]);
+
+  const kcalPct = Math.min(100, round((totals.kcal / TARGET_KCAL) * 100));
+  const kcalRemaining = TARGET_KCAL - totals.kcal;
+
+  const resetFoodForm = () => {
+    setFoodName(""); setFoodKcal(""); setFoodProtein(""); setFoodFat(""); setFoodCarbs("");
+    setFoodError(""); setPhotoData(null); setPhotoWeight(""); setEstimateError(""); setEstimatedFlag(false);
+  };
+
+  const handlePhotoSelect = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setEstimateError(""); setEstimatedFlag(false);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const match = /^data:(.+);base64,(.*)$/.exec(dataUrl);
+      if (!match) { setEstimateError("No se pudo leer la imagen."); return; }
+      setPhotoData({ mediaType: match[1], base64: match[2], previewUrl: dataUrl });
+    };
+    reader.onerror = () => setEstimateError("No se pudo leer la imagen.");
+    reader.readAsDataURL(file);
+  };
+
+  const handleEstimatePhoto = async () => {
+    if (!photoData) { setEstimateError("Sube una foto primero."); return; }
+    if (!apiKey) {
+      setEstimateError('Añade tu clave de API en Ajustes (icono de arriba) para usar esta función.');
+      return;
+    }
+    setEstimating(true); setEstimateError("");
+    try {
+      const weightNote = photoWeight
+        ? ` El peso aproximado de esta ración es ${photoWeight}g; ajusta tu estimación a esa cantidad.`
+        : " No conozco el peso exacto, estima a partir del tamaño visual de la ración.";
+      const promptText =
+        "Eres un nutricionista estimando las calorías y macronutrientes de un plato de comida a partir de una foto." +
+        weightNote +
+        ' Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin markdown, sin bloques de código, con exactamente estas claves: ' +
+        '{"nombre": "string breve describiendo el plato", "kcal": number, "proteina_g": number, "grasa_g": number, "carbohidratos_g": number}. ' +
+        "Los valores numéricos deben ser solo números (sin unidades, sin texto).";
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 500,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: photoData.mediaType, data: photoData.base64 } },
+              { type: "text", text: promptText },
+            ],
+          }],
+        }),
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message || "Error de la API");
+      const textResponse = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      const cleaned = textResponse.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+
+      setFoodName(parsed.nombre || "Comida (foto)");
+      setFoodKcal(String(round(Number(parsed.kcal) || 0)));
+      setFoodProtein(String(round(Number(parsed.proteina_g) || 0)));
+      setFoodFat(String(round(Number(parsed.grasa_g) || 0)));
+      setFoodCarbs(String(round(Number(parsed.carbohidratos_g) || 0)));
+      setEstimatedFlag(true);
+    } catch (e) {
+      console.error(e);
+      setEstimateError("No se pudo estimar la foto (" + e.message + "). Puedes escribir los valores a mano.");
+    } finally {
+      setEstimating(false);
+    }
+  };
+
+  const handleAddFood = (e) => {
+    e.preventDefault();
+    if (!foodName.trim()) { setFoodError("Escribe el nombre de la comida."); return; }
+    if (!foodKcal || Number(foodKcal) <= 0) { setFoodError("Indica las calorías."); return; }
+    setFoodError("");
+    const newFood = {
+      id: `${Date.now()}`,
+      name: foodName.trim(),
+      kcal: round(Number(foodKcal)),
+      protein: round(Number(foodProtein) || 0),
+      fat: round(Number(foodFat) || 0),
+      carbs: round(Number(foodCarbs) || 0),
+      time: nowTimeStr(),
+    };
+    updateDay(currentDate, (d) => ({ ...d, foods: [...d.foods, newFood] }));
+    resetFoodForm();
+    setFoodMode("manual");
+  };
+
+  const handleDeleteFood = (id) => {
+    updateDay(currentDate, (d) => ({ ...d, foods: d.foods.filter((f) => f.id !== id) }));
+  };
+
+  const handleSaveWeight = (e) => {
+    e.preventDefault();
+    if (!weightInput || Number(weightInput) <= 0) { setWeightError("Introduce un peso válido."); return; }
+    setWeightError("");
+    updateDay(currentDate, (d) => ({ ...d, weight: { value: round(Number(weightInput), 1), time: nowTimeStr() } }));
+  };
+
+  const handleSaveExercise = (e) => {
+    e.preventDefault();
+    if (!exerciseType) return;
+    updateDay(currentDate, (d) => ({ ...d, exercise: { type: exerciseType, notes: exerciseNotes.trim(), time: nowTimeStr() } }));
+  };
+
+  const handleClearExercise = () => {
+    setExerciseType(""); setExerciseNotes("");
+    updateDay(currentDate, (d) => ({ ...d, exercise: null }));
+  };
+
+  const handleSaveApiKey = () => {
+    saveApiKey(apiKeyInput.trim());
+    setApiKey(apiKeyInput.trim());
+    setApiKeyInput("");
+    setApiKeySaved(true);
+    setTimeout(() => setApiKeySaved(false), 2000);
+  };
+
+  const handleClearApiKey = () => {
+    saveApiKey("");
+    setApiKey("");
+  };
+
+  const allDays = useMemo(() => Object.values(allData).sort((a, b) => (a.date < b.date ? -1 : 1)), [allData]);
+  const weightHistory = useMemo(() => allDays.filter((d) => d.weight).map((d) => ({ date: d.date, value: d.weight.value })), [allDays]);
+  const avg7 = useMemo(() => {
+    const last7 = weightHistory.slice(-7);
+    if (last7.length === 0) return null;
+    return round(last7.reduce((a, b) => a + b.value, 0) / last7.length, 1);
+  }, [weightHistory]);
+
+  const isToday = currentDate === todayStr();
+
+  return (
+    <div style={styles.app}>
+      <div style={styles.topBar}>
+        <span className="bt-num" style={styles.topBarTitle}>BULK TRACKER</span>
+        <button style={styles.iconBtn} onClick={() => setShowSettings(true)} aria-label="Ajustes">
+          <Settings size={18} color="#9AA0AB" />
+        </button>
+      </div>
+
+      <div style={styles.container}>
+        {error && <div style={styles.errorBanner}>{error}</div>}
+
+        {activeTab === "hoy" && (
+          <HoyTab
+            currentDate={currentDate} setCurrentDate={setCurrentDate} isToday={isToday}
+            dayData={dayData} totals={totals} kcalPct={kcalPct} kcalRemaining={kcalRemaining}
+            weightInput={weightInput} setWeightInput={setWeightInput} weightError={weightError} handleSaveWeight={handleSaveWeight}
+            foodName={foodName} setFoodName={setFoodName}
+            foodKcal={foodKcal} setFoodKcal={setFoodKcal}
+            foodProtein={foodProtein} setFoodProtein={setFoodProtein}
+            foodFat={foodFat} setFoodFat={setFoodFat}
+            foodCarbs={foodCarbs} setFoodCarbs={setFoodCarbs}
+            foodError={foodError} handleAddFood={handleAddFood} handleDeleteFood={handleDeleteFood}
+            foodMode={foodMode} setFoodMode={setFoodMode}
+            photoData={photoData} handlePhotoSelect={handlePhotoSelect}
+            photoWeight={photoWeight} setPhotoWeight={setPhotoWeight}
+            handleEstimatePhoto={handleEstimatePhoto} estimating={estimating}
+            estimateError={estimateError} estimatedFlag={estimatedFlag} resetFoodForm={resetFoodForm}
+            exerciseType={exerciseType} setExerciseType={setExerciseType}
+            exerciseNotes={exerciseNotes} setExerciseNotes={setExerciseNotes}
+            handleSaveExercise={handleSaveExercise} handleClearExercise={handleClearExercise}
+          />
+        )}
+
+        {activeTab === "progreso" && (
+          <ProgresoTab weightHistory={weightHistory} avg7={avg7} allDays={allDays} />
+        )}
+
+        {activeTab === "historial" && (
+          <HistorialTab allDays={allDays} onSelectDay={(date) => { setCurrentDate(date); setActiveTab("hoy"); }} />
+        )}
+      </div>
+
+      <div style={styles.tabBar}>
+        <button className={`bt-tab-btn ${activeTab === "hoy" ? "active" : ""}`} onClick={() => setActiveTab("hoy")}>
+          <Flame size={20} />Hoy
+        </button>
+        <button className={`bt-tab-btn ${activeTab === "progreso" ? "active" : ""}`} onClick={() => setActiveTab("progreso")}>
+          <TrendingUp size={20} />Progreso
+        </button>
+        <button className={`bt-tab-btn ${activeTab === "historial" ? "active" : ""}`} onClick={() => setActiveTab("historial")}>
+          <CalendarDays size={20} />Historial
+        </button>
+      </div>
+
+      {showSettings && (
+        <div style={styles.modalOverlay} onClick={() => setShowSettings(false)}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.cardHeaderRow}>
+              <span style={styles.cardTitle}>Ajustes</span>
+              <button style={styles.iconBtn} onClick={() => setShowSettings(false)} aria-label="Cerrar">
+                <X size={18} color="#9AA0AB" />
+              </button>
+            </div>
+            <p style={styles.settingsBody}>
+              Clave de API de Anthropic (opcional) — solo hace falta si quieres estimar calorías a partir de una foto.
+              Se guarda únicamente en este dispositivo.
+            </p>
+            {apiKey ? (
+              <div style={styles.apiKeyRow}>
+                <span style={styles.apiKeyMasked}>{apiKey.slice(0, 8)}••••••••{apiKey.slice(-4)}</span>
+                <button className="bt-btn-ghost" onClick={handleClearApiKey}>Quitar</button>
+              </div>
+            ) : (
+              <div>
+                <input
+                  type="password"
+                  placeholder="sk-ant-..."
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  style={{ width: "100%", marginBottom: 8 }}
+                />
+                <button className="bt-btn-primary" style={{ width: "100%" }} onClick={handleSaveApiKey} disabled={!apiKeyInput.trim()}>
+                  {apiKeySaved ? <><Check size={15} /> Guardada</> : "Guardar clave"}
+                </button>
+              </div>
+            )}
+            <p style={styles.settingsHint}>
+              Consíguela en console.anthropic.com → API Keys. El uso para fotos de comida cuesta céntimos al mes.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HoyTab(props) {
+  const {
+    currentDate, setCurrentDate, isToday, dayData, totals, kcalPct, kcalRemaining,
+    weightInput, setWeightInput, weightError, handleSaveWeight,
+    foodName, setFoodName, foodKcal, setFoodKcal, foodProtein, setFoodProtein,
+    foodFat, setFoodFat, foodCarbs, setFoodCarbs, foodError, handleAddFood, handleDeleteFood,
+    foodMode, setFoodMode, photoData, handlePhotoSelect, photoWeight, setPhotoWeight,
+    handleEstimatePhoto, estimating, estimateError, estimatedFlag, resetFoodForm,
+    exerciseType, setExerciseType, exerciseNotes, setExerciseNotes, handleSaveExercise, handleClearExercise,
+  } = props;
+
+  return (
+    <div>
+      <div style={styles.dateNav}>
+        <button style={styles.dateNavBtn} onClick={() => setCurrentDate(addDays(currentDate, -1))} aria-label="Día anterior">
+          <ChevronLeft size={18} color="#9AA0AB" />
+        </button>
+        <span style={styles.dateLabel}>
+          {formatDateLabel(currentDate)} {isToday && <span style={styles.todayBadge}>hoy</span>}
+        </span>
+        <button style={styles.dateNavBtn} onClick={() => setCurrentDate(addDays(currentDate, 1))} disabled={isToday} aria-label="Día siguiente">
+          <ChevronRight size={18} color={isToday ? "#3A3E46" : "#9AA0AB"} />
+        </button>
+      </div>
+
+      <div style={styles.hero}>
+        <div className="bt-num" style={styles.heroKcal}>{round(totals.kcal).toLocaleString("es-ES")}</div>
+        <div style={styles.heroSub}>de {TARGET_KCAL.toLocaleString("es-ES")} kcal</div>
+        <div style={styles.gaugeTrack}>
+          <div style={{ ...styles.gaugeFill, width: `${kcalPct}%`, background: kcalPct >= 100 ? "#4F9B8C" : "#E2A63B" }} />
+        </div>
+        <div style={{ ...styles.heroRemaining, color: kcalRemaining > 0 ? "#9AA0AB" : "#4F9B8C" }}>
+          {kcalRemaining > 0
+            ? `Faltan ${round(kcalRemaining).toLocaleString("es-ES")} kcal`
+            : `+${round(-kcalRemaining).toLocaleString("es-ES")} kcal sobre objetivo`}
+        </div>
+      </div>
+
+      <div style={styles.macroRow}>
+        <MacroPill label="Prot" value={totals.protein} target={TARGET_PROTEIN} unit="g" />
+        <MacroPill label="Gras" value={totals.fat} target={TARGET_FAT} unit="g" />
+        <MacroPill label="Carb" value={totals.carbs} target={TARGET_CARBS} unit="g" />
+      </div>
+
+      <section style={styles.card}>
+        <div style={styles.cardHeaderRow}>
+          <span style={styles.cardTitle}>Peso</span>
+          {dayData.weight && <span style={styles.cardMeta}>guardado {dayData.weight.time}</span>}
+        </div>
+        <form onSubmit={handleSaveWeight} style={styles.inlineForm}>
+          <input type="number" step="0.1" inputMode="decimal" placeholder="51.4" value={weightInput}
+            onChange={(e) => setWeightInput(e.target.value)} style={{ flex: 1 }} />
+          <span style={styles.unitLabel}>kg</span>
+          <button className="bt-btn-primary" type="submit" style={{ width: 90 }}>Guardar</button>
+        </form>
+        {weightError && <div style={styles.fieldError}>{weightError}</div>}
+      </section>
+
+      <section style={styles.card}>
+        <div style={styles.cardHeaderRow}>
+          <span style={styles.cardTitle}>Añadir comida</span>
+          <div style={styles.modeSwitch}>
+            <button type="button" style={{ ...styles.modeBtn, ...(foodMode === "manual" ? styles.modeBtnActive : {}) }} onClick={() => setFoodMode("manual")}>Manual</button>
+            <button type="button" style={{ ...styles.modeBtn, ...(foodMode === "foto" ? styles.modeBtnActive : {}) }} onClick={() => setFoodMode("foto")}>
+              <Camera size={13} /> Foto
+            </button>
+          </div>
+        </div>
+
+        {foodMode === "foto" && (
+          <div style={{ marginBottom: 10 }}>
+            {!photoData ? (
+              <label style={styles.photoDrop}>
+                <Camera size={20} color="#6C7280" />
+                <span style={{ fontSize: 12, color: "#9AA0AB", marginTop: 6 }}>Toca para hacer o subir una foto</span>
+                <input type="file" accept="image/*" capture="environment" onChange={handlePhotoSelect} style={{ display: "none" }} />
+              </label>
+            ) : (
+              <div style={styles.photoPreviewWrap}>
+                <img src={photoData.previewUrl} alt="Foto de la comida" style={styles.photoPreviewImg} />
+                <button type="button" className="bt-btn-ghost" style={{ padding: "4px 8px" }} onClick={resetFoodForm} aria-label="Quitar foto">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {photoData && !estimatedFlag && (
+              <div style={{ marginTop: 8 }}>
+                <label style={styles.smallLabel}>Peso aprox. en gramos (opcional, mejora la precisión)</label>
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <input type="number" inputMode="numeric" placeholder="p. ej. 250" value={photoWeight}
+                    onChange={(e) => setPhotoWeight(e.target.value)} style={{ flex: 1 }} />
+                  <button type="button" className="bt-btn-primary" style={{ width: 130 }} onClick={handleEstimatePhoto} disabled={estimating}>
+                    {estimating ? <Loader2 size={14} style={{ animation: "bt-spin 1s linear infinite" }} /> : "Estimar"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {estimateError && <div style={styles.fieldError}>{estimateError}</div>}
+            {estimatedFlag && <div style={styles.estimatedHint}>Estimado a partir de la foto — revisa y ajusta antes de añadir.</div>}
+          </div>
+        )}
+
+        {(foodMode === "manual" || estimatedFlag) && (
+          <form onSubmit={handleAddFood}>
+            <input type="text" placeholder="Nombre de la comida" value={foodName}
+              onChange={(e) => setFoodName(e.target.value)} style={{ width: "100%", marginBottom: 8 }} />
+            <div style={styles.macroInputRow}>
+              <div style={styles.macroInputCol}>
+                <label style={styles.smallLabel}>kcal</label>
+                <input type="number" inputMode="numeric" placeholder="0" value={foodKcal} onChange={(e) => setFoodKcal(e.target.value)} style={{ width: "100%" }} />
+              </div>
+              <div style={styles.macroInputCol}>
+                <label style={styles.smallLabel}>prot g</label>
+                <input type="number" inputMode="numeric" placeholder="0" value={foodProtein} onChange={(e) => setFoodProtein(e.target.value)} style={{ width: "100%" }} />
+              </div>
+              <div style={styles.macroInputCol}>
+                <label style={styles.smallLabel}>gras g</label>
+                <input type="number" inputMode="numeric" placeholder="0" value={foodFat} onChange={(e) => setFoodFat(e.target.value)} style={{ width: "100%" }} />
+              </div>
+              <div style={styles.macroInputCol}>
+                <label style={styles.smallLabel}>carb g</label>
+                <input type="number" inputMode="numeric" placeholder="0" value={foodCarbs} onChange={(e) => setFoodCarbs(e.target.value)} style={{ width: "100%" }} />
+              </div>
+            </div>
+            {foodError && <div style={styles.fieldError}>{foodError}</div>}
+            <button className="bt-btn-primary" type="submit" style={{ width: "100%", marginTop: 10 }}>
+              <Plus size={16} /> Añadir
+            </button>
+          </form>
+        )}
+      </section>
+
+      {dayData.foods.length > 0 && (
+        <section style={styles.card}>
+          <div style={styles.cardHeaderRow}><span style={styles.cardTitle}>Comidas de {isToday ? "hoy" : "ese día"}</span></div>
+          {dayData.foods.map((f) => (
+            <div key={f.id} style={styles.foodRow}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={styles.foodName}>{f.name}</div>
+                <div style={styles.foodMacros}>{round(f.protein)}p · {round(f.fat)}g · {round(f.carbs)}c · {f.time}</div>
+              </div>
+              <div style={styles.foodKcal}>{round(f.kcal)}</div>
+              <button className="bt-btn-ghost" style={{ padding: 6 }} onClick={() => handleDeleteFood(f.id)} aria-label="Eliminar comida">
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <section style={styles.card}>
+        <div style={styles.cardHeaderRow}>
+          <span style={styles.cardTitle}>Entreno</span>
+          {dayData.exercise && <button className="bt-btn-ghost" style={{ padding: "4px 10px" }} onClick={handleClearExercise}>Quitar</button>}
+        </div>
+        <form onSubmit={handleSaveExercise}>
+          <select value={exerciseType} onChange={(e) => setExerciseType(e.target.value)} style={{ width: "100%", marginBottom: 8 }}>
+            <option value="">Selecciona tipo…</option>
+            {EXERCISE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <textarea placeholder="Notas (pesos, series, reps…)" value={exerciseNotes} onChange={(e) => setExerciseNotes(e.target.value)}
+            rows={2} style={{ width: "100%", marginBottom: 8, resize: "none" }} />
+          <button className="bt-btn-primary" type="submit" style={{ width: "100%" }} disabled={!exerciseType}>
+            <Dumbbell size={16} /> Guardar entreno
+          </button>
+        </form>
+        {dayData.exercise && <div style={styles.cardMeta}>Guardado {dayData.exercise.time}</div>}
+      </section>
+    </div>
+  );
+}
+
+function MacroPill({ label, value, target, unit }) {
+  const pct = Math.min(100, round((value / target) * 100));
+  return (
+    <div style={styles.macroPill}>
+      <div style={styles.macroPillTop}>
+        <span style={styles.macroPillLabel}>{label}</span>
+        <span style={styles.macroPillValue}>{round(value)}{unit}</span>
+      </div>
+      <div style={styles.macroPillTrack}><div style={{ ...styles.macroPillFill, width: `${pct}%` }} /></div>
+    </div>
+  );
+}
+
+function ProgresoTab({ weightHistory, avg7, allDays }) {
+  if (weightHistory.length === 0) {
+    return (
+      <div style={styles.emptyState}>
+        <TrendingUp size={28} color="#3A3E46" />
+        <p style={styles.emptyTitle}>Todavía no hay pesadas</p>
+        <p style={styles.emptyBody}>Registra tu peso en la pestaña Hoy para ver aquí la tendencia.</p>
+      </div>
+    );
+  }
+  const daysLogged = allDays.filter((d) => d.foods.length > 0).length;
+  return (
+    <div>
+      <div style={styles.statsRow}>
+        <div style={styles.statCard}>
+          <div style={styles.statLabel}>Media 7 pesadas</div>
+          <div className="bt-num" style={styles.statValue}>{avg7 !== null ? `${avg7} kg` : "—"}</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={styles.statLabel}>Última pesada</div>
+          <div className="bt-num" style={styles.statValue}>{weightHistory[weightHistory.length - 1].value} kg</div>
+        </div>
+      </div>
+      <section style={styles.card}>
+        <div style={styles.cardHeaderRow}><span style={styles.cardTitle}>Peso — últimas {weightHistory.length} pesadas</span></div>
+        <WeightLineChart data={weightHistory} />
+      </section>
+      <div style={styles.statsRow}>
+        <div style={styles.statCard}>
+          <div style={styles.statLabel}>Días registrados</div>
+          <div className="bt-num" style={styles.statValue}>{allDays.length}</div>
+        </div>
+        <div style={styles.statCard}>
+          <div style={styles.statLabel}>Con comidas</div>
+          <div className="bt-num" style={styles.statValue}>{daysLogged}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WeightLineChart({ data }) {
+  const width = 320, height = 150, padTop = 22, padBottom = 22, padX = 8;
+  const values = data.map((d) => d.value);
+  const rawMin = Math.min(...values), rawMax = Math.max(...values);
+  const pad = (rawMax - rawMin) * 0.15 || 1;
+  const min = rawMin - pad, max = rawMax + pad;
+  const range = max - min || 1;
+  const points = data.map((d, i) => {
+    const x = data.length === 1 ? width / 2 : padX + (i / (data.length - 1)) * (width - padX * 2);
+    const y = padTop + (1 - (d.value - min) / range) * (height - padTop - padBottom);
+    return { x, y, value: d.value, date: d.date };
+  });
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${round(p.x, 1)} ${round(p.y, 1)}`).join(" ");
+  const areaPath = `${linePath} L ${round(points[points.length - 1].x, 1)} ${height - padBottom} L ${round(points[0].x, 1)} ${height - padBottom} Z`;
+  const showEvery = data.length > 8 ? Math.ceil(data.length / 6) : 1;
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", overflow: "visible" }} role="img" aria-label="Gráfico de evolución del peso">
+        <path d={areaPath} fill="#E2A63B" opacity="0.08" />
+        <path d={linePath} fill="none" stroke="#E2A63B" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        {points.map((p, i) => (
+          <g key={i}>
+            <circle cx={p.x} cy={p.y} r={i === points.length - 1 ? 4 : 2.5} fill="#E2A63B" />
+            {(i === 0 || i === points.length - 1 || i % showEvery === 0) && (
+              <text x={p.x} y={p.y - 8} fontSize="9" fill="#9AA0AB" textAnchor="middle">{p.value}</text>
+            )}
+          </g>
+        ))}
+      </svg>
+      <div style={styles.chartAxisRow}>
+        <span style={styles.chartAxisLabel}>{formatDateLabel(data[0].date)}</span>
+        <span style={styles.chartAxisLabel}>{formatDateLabel(data[data.length - 1].date)}</span>
+      </div>
+    </div>
+  );
+}
+
+function HistorialTab({ allDays, onSelectDay }) {
+  const sorted = [...allDays].sort((a, b) => (a.date < b.date ? 1 : -1));
+  if (sorted.length === 0) {
+    return (
+      <div style={styles.emptyState}>
+        <CalendarDays size={28} color="#3A3E46" />
+        <p style={styles.emptyTitle}>Sin días registrados</p>
+        <p style={styles.emptyBody}>Cuando registres peso, comidas o entreno, aparecerán aquí.</p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      {sorted.map((d) => {
+        const kcal = d.foods.reduce((a, f) => a + (Number(f.kcal) || 0), 0);
+        return (
+          <button key={d.date} onClick={() => onSelectDay(d.date)} style={styles.historyRow}>
+            <div style={{ textAlign: "left" }}>
+              <div style={styles.historyDate}>{formatDateLabel(d.date)}</div>
+              <div style={styles.historyMeta}>
+                {d.foods.length > 0 ? `${round(kcal)} kcal` : "sin comidas"}
+                {d.exercise ? ` · ${d.exercise.type}` : ""}
+              </div>
+            </div>
+            <div style={styles.historyWeight}>{d.weight ? `${d.weight.value} kg` : "—"}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const styles = {
+  app: { background: "#0E0F12", minHeight: "100vh", display: "flex", flexDirection: "column" },
+  topBar: {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "14px 16px 6px", position: "sticky", top: 0, background: "#0E0F12", zIndex: 5,
+  },
+  topBarTitle: { color: "#E2A63B", fontSize: 18 },
+  iconBtn: { background: "transparent", border: "none", padding: 6, display: "flex" },
+  container: { flex: 1, padding: "10px 14px 8px", maxWidth: 480, margin: "0 auto", width: "100%" },
+  tabBar: { display: "flex", borderTop: "1px solid #1D2025", padding: "2px 6px", background: "#0E0F12", position: "sticky", bottom: 0 },
+  errorBanner: { background: "rgba(193,97,74,0.15)", color: "#E29282", fontSize: 13, padding: "8px 10px", borderRadius: 8, marginBottom: 10 },
+  dateNav: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  dateNavBtn: { background: "transparent", border: "none", padding: 6, display: "flex" },
+  dateLabel: { color: "#F3F1EC", fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 },
+  todayBadge: { background: "#E2A63B", color: "#2A1B05", fontSize: 10, fontWeight: 700, borderRadius: 20, padding: "2px 8px" },
+  hero: { textAlign: "center", marginBottom: 16 },
+  heroKcal: { fontSize: 56, color: "#F3F1EC", lineHeight: 1 },
+  heroSub: { color: "#6C7280", fontSize: 13, marginTop: 2, marginBottom: 12 },
+  gaugeTrack: { height: 10, background: "#23262C", borderRadius: 20, overflow: "hidden" },
+  gaugeFill: { height: "100%", borderRadius: 20, transition: "width 0.3s ease" },
+  heroRemaining: { fontSize: 13, marginTop: 8, fontWeight: 500 },
+  macroRow: { display: "flex", gap: 8, marginBottom: 16 },
+  macroPill: { flex: 1, background: "#1D2025", borderRadius: 10, padding: "8px 10px" },
+  macroPillTop: { display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 11 },
+  macroPillLabel: { color: "#6C7280" },
+  macroPillValue: { color: "#F3F1EC", fontWeight: 600 },
+  macroPillTrack: { height: 4, background: "#2C3038", borderRadius: 4, overflow: "hidden" },
+  macroPillFill: { height: "100%", background: "#4F9B8C", borderRadius: 4 },
+  card: { background: "#1D2025", borderRadius: 12, padding: 14, marginBottom: 12 },
+  cardHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  cardTitle: { color: "#F3F1EC", fontSize: 14, fontWeight: 600 },
+  cardMeta: { color: "#6C7280", fontSize: 11, marginTop: 6 },
+  modeSwitch: { display: "flex", background: "#23262C", borderRadius: 8, padding: 2, gap: 2 },
+  modeBtn: { background: "transparent", border: "none", color: "#6C7280", fontSize: 11, padding: "5px 9px", borderRadius: 6, display: "flex", alignItems: "center", gap: 4 },
+  modeBtnActive: { background: "#2C3038", color: "#F3F1EC" },
+  photoDrop: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", border: "1px dashed #2C3038", borderRadius: 10, padding: "22px 10px", cursor: "pointer" },
+  photoPreviewWrap: { display: "flex", alignItems: "center", gap: 10 },
+  photoPreviewImg: { width: 64, height: 64, borderRadius: 8, objectFit: "cover", border: "1px solid #2C3038" },
+  estimatedHint: { color: "#4F9B8C", fontSize: 11, marginTop: 8 },
+  inlineForm: { display: "flex", alignItems: "center", gap: 8 },
+  unitLabel: { color: "#6C7280", fontSize: 13 },
+  fieldError: { color: "#E29282", fontSize: 12, marginTop: 6 },
+  macroInputRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
+  macroInputCol: { display: "flex", flexDirection: "column", gap: 4 },
+  smallLabel: { color: "#6C7280", fontSize: 10 },
+  foodRow: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid #2C3038" },
+  foodName: { color: "#F3F1EC", fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  foodMacros: { color: "#6C7280", fontSize: 11, marginTop: 2 },
+  foodKcal: { color: "#E2A63B", fontSize: 13, fontWeight: 600, minWidth: 44, textAlign: "right" },
+  statsRow: { display: "flex", gap: 8, marginBottom: 12 },
+  statCard: { flex: 1, background: "#1D2025", borderRadius: 12, padding: "10px 12px" },
+  statLabel: { color: "#6C7280", fontSize: 11, marginBottom: 4 },
+  statValue: { color: "#F3F1EC", fontSize: 26 },
+  chartAxisRow: { display: "flex", justifyContent: "space-between", marginTop: 6 },
+  chartAxisLabel: { color: "#6C7280", fontSize: 10 },
+  emptyState: { textAlign: "center", padding: "48px 20px" },
+  emptyTitle: { color: "#F3F1EC", fontSize: 15, fontWeight: 600, margin: "12px 0 4px" },
+  emptyBody: { color: "#6C7280", fontSize: 13, margin: 0 },
+  historyRow: { width: "100%", background: "#1D2025", border: "none", borderRadius: 10, padding: "12px 14px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", textAlign: "left" },
+  historyDate: { color: "#F3F1EC", fontSize: 13, fontWeight: 600 },
+  historyMeta: { color: "#6C7280", fontSize: 11, marginTop: 2 },
+  historyWeight: { color: "#E2A63B", fontSize: 13, fontWeight: 600 },
+  modalOverlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", zIndex: 20 },
+  modalCard: { background: "#1D2025", borderRadius: "16px 16px 0 0", padding: 18, width: "100%", maxWidth: 480, margin: "0 auto" },
+  settingsBody: { color: "#9AA0AB", fontSize: 12, lineHeight: 1.5, marginTop: 0, marginBottom: 12 },
+  settingsHint: { color: "#6C7280", fontSize: 11, marginTop: 12, marginBottom: 0 },
+  apiKeyRow: { display: "flex", alignItems: "center", justifyContent: "space-between", background: "#23262C", borderRadius: 8, padding: "8px 10px" },
+  apiKeyMasked: { color: "#F3F1EC", fontSize: 13, fontFamily: "monospace" },
+};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
