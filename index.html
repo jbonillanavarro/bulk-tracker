@@ -460,6 +460,8 @@ function App() {
   const [estimating, setEstimating] = useState(false);
   const [estimateError, setEstimateError] = useState("");
   const [estimatedFlag, setEstimatedFlag] = useState(false);
+  const [foodWeight, setFoodWeight] = useState("");
+  const [foodWeightBaseline, setFoodWeightBaseline] = useState(null);
 
   const [aiSuggestions, setAiSuggestions] = useState(null);
   const [aiSuggestLoading, setAiSuggestLoading] = useState(false);
@@ -524,6 +526,19 @@ function App() {
     setFoodName(""); setFoodKcal(""); setFoodProtein(""); setFoodFat(""); setFoodCarbs("");
     setFoodError(""); setPhotoData(null); setPhotoWeight("");
     setPhotoKnownName(""); setPhotoKnownKcal(""); setEstimateError(""); setEstimatedFlag(false);
+    setFoodWeight(""); setFoodWeightBaseline(null);
+  };
+
+  const handleFoodWeightChange = (rawValue) => {
+    setFoodWeight(rawValue);
+    if (!foodWeightBaseline) return;
+    const newWeight = parseDecimal(rawValue);
+    if (!(newWeight > 0)) return;
+    const scale = newWeight / foodWeightBaseline.weight;
+    setFoodKcal(String(round(foodWeightBaseline.kcal * scale)));
+    setFoodProtein(String(round(foodWeightBaseline.protein * scale)));
+    setFoodFat(String(round(foodWeightBaseline.fat * scale)));
+    setFoodCarbs(String(round(foodWeightBaseline.carbs * scale)));
   };
 
   const handlePhotoSelect = (e) => {
@@ -567,7 +582,8 @@ function App() {
         "Eres un nutricionista estimando las calorías y macronutrientes de un plato de comida a partir de una foto." +
         weightNote + nameNote + kcalNote +
         ' Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin markdown, sin bloques de código, con exactamente estas claves: ' +
-        '{"nombre": "string breve describiendo el plato", "kcal": number, "proteina_g": number, "grasa_g": number, "carbohidratos_g": number}. ' +
+        '{"nombre": "string breve describiendo el plato", "peso_g": number, "kcal": number, "proteina_g": number, "grasa_g": number, "carbohidratos_g": number}. ' +
+        "peso_g es el peso neto estimado de la ración en gramos (el que te haya dado el usuario si lo hay, o tu propia estimación visual si no). " +
         "Los valores numéricos deben ser solo números (sin unidades, sin texto).";
 
       let textResponse;
@@ -622,11 +638,25 @@ function App() {
       const cleaned = textResponse.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(cleaned);
 
+      const estimatedKcal = round(Number(parsed.kcal) || 0);
+      const estimatedProtein = round(Number(parsed.proteina_g) || 0);
+      const estimatedFat = round(Number(parsed.grasa_g) || 0);
+      const estimatedCarbs = round(Number(parsed.carbohidratos_g) || 0);
+      const aiWeight = Number(parsed.peso_g);
+      const baselineWeight = photoWeight ? Number(photoWeight) : (aiWeight > 0 ? round(aiWeight) : null);
+
       setFoodName(parsed.nombre || "Comida (foto)");
-      setFoodKcal(String(round(Number(parsed.kcal) || 0)));
-      setFoodProtein(String(round(Number(parsed.proteina_g) || 0)));
-      setFoodFat(String(round(Number(parsed.grasa_g) || 0)));
-      setFoodCarbs(String(round(Number(parsed.carbohidratos_g) || 0)));
+      setFoodKcal(String(estimatedKcal));
+      setFoodProtein(String(estimatedProtein));
+      setFoodFat(String(estimatedFat));
+      setFoodCarbs(String(estimatedCarbs));
+      if (baselineWeight > 0) {
+        setFoodWeight(String(baselineWeight));
+        setFoodWeightBaseline({ weight: baselineWeight, kcal: estimatedKcal, protein: estimatedProtein, fat: estimatedFat, carbs: estimatedCarbs });
+      } else {
+        setFoodWeight("");
+        setFoodWeightBaseline(null);
+      }
       setEstimatedFlag(true);
     } catch (e) {
       console.error(e);
@@ -949,6 +979,7 @@ function App() {
             photoWeight={photoWeight} setPhotoWeight={setPhotoWeight}
             photoKnownName={photoKnownName} setPhotoKnownName={setPhotoKnownName}
             photoKnownKcal={photoKnownKcal} setPhotoKnownKcal={setPhotoKnownKcal}
+            foodWeight={foodWeight} foodWeightBaseline={foodWeightBaseline} handleFoodWeightChange={handleFoodWeightChange}
             handleEstimatePhoto={handleEstimatePhoto} estimating={estimating}
             estimateError={estimateError} estimatedFlag={estimatedFlag} resetFoodForm={resetFoodForm}
             exerciseType={exerciseType} setExerciseType={setExerciseType}
@@ -1129,6 +1160,7 @@ function HoyTab(props) {
     handleAddSuggestedFood, aiSuggestions, aiSuggestLoading, aiSuggestError, handleSuggestWithAI,
     foodMode, setFoodMode, photoData, handlePhotoSelect, photoWeight, setPhotoWeight,
     photoKnownName, setPhotoKnownName, photoKnownKcal, setPhotoKnownKcal,
+    foodWeight, foodWeightBaseline, handleFoodWeightChange,
     handleEstimatePhoto, estimating, estimateError, estimatedFlag, resetFoodForm,
     exerciseType, setExerciseType, exerciseNotes, setExerciseNotes, handleSaveExercise, handleClearExercise,
   } = props;
@@ -1273,6 +1305,13 @@ function HoyTab(props) {
           <form onSubmit={handleAddFood}>
             <input type="text" placeholder="Nombre de la comida" value={foodName}
               onChange={(e) => setFoodName(e.target.value)} style={{ width: "100%", marginBottom: 8 }} />
+            {foodWeightBaseline && (
+              <div style={{ marginBottom: 8 }}>
+                <label style={styles.smallLabel}>Peso neto (g) — corrígelo y las kcal/macros se reajustan solas</label>
+                <input type="text" inputMode="decimal" placeholder="250" value={foodWeight}
+                  onChange={(e) => handleFoodWeightChange(e.target.value)} style={{ width: "100%", marginTop: 4 }} />
+              </div>
+            )}
             <div style={styles.macroInputRow}>
               <div style={styles.macroInputCol}>
                 <label style={styles.smallLabel}>kcal</label>
