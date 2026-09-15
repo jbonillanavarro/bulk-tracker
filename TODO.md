@@ -4,9 +4,11 @@ Roadmap de funciones pendientes y completadas. Al terminar una tarea, márcala c
 
 ## Fase 1 — Fundamentos
 
-- [ ] Exportar/importar copia de seguridad en JSON (botón "Descargar copia de seguridad" y "Restaurar desde archivo"), para no depender solo del localStorage del navegador
+- [x] Exportar/importar copia de seguridad en JSON (botón "Descargar copia de seguridad" y "Restaurar desde archivo"), para no depender solo del localStorage del navegador (hecho 2026-09-15)
+  Añadido en el modal de Ajustes: "Descargar copia de seguridad" genera un `.json` con todos los días (`bulk-tracker-backup-<fecha>.json`, sin la clave de API); "Restaurar desde archivo" valida la estructura, pide confirmación (reemplaza todos los datos actuales) y guarda en localStorage. Iconos `Download`/`Upload` añadidos al wrapper de lucide ya existente (verificado que existen en el bundle CDN). Pendiente: confirmar visualmente en un navegador móvil real, ya que este entorno no tiene un navegador disponible para probarlo de forma automática.
 - [ ] Separar la pestaña Progreso en dos gráficas independientes: una de peso y otra de calorías diarias (actualmente solo existe la de peso)
-- [ ] Mejorar el modo Foto de comida: permitir añadir como contexto opcional el nombre del alimento y/o las calorías ya conocidas (no solo el peso en gramos), y usarlos en el prompt de estimación
+- [x] Mejorar el modo Foto de comida: permitir añadir como contexto opcional el nombre del alimento y/o las calorías ya conocidas (no solo el peso en gramos), y usarlos en el prompt de estimación (hecho 2026-09-15)
+  Añadidos dos campos opcionales antes de "Estimar": "Nombre del plato" y "Kcal ya conocidas" (además del peso en gramos que ya existía). Si se rellenan, se incluyen como contexto adicional en el prompt enviado a la API de Claude — el nombre como descripción del plato, y las kcal conocidas como referencia principal para que el modelo ajuste los macros de forma coherente con ellas. Sin ninguno de los dos campos, el comportamiento es idéntico al anterior.
 
 - [ ] Convertir los objetivos nutricionales (TARGET_KCAL, TARGET_PROTEIN, TARGET_FAT, TARGET_CARBS) de constantes fijas en el código a valores editables desde Ajustes y persistidos en localStorage. Añadir lógica de ajuste: si tras 2 semanas cumpliendo el objetivo calórico no hay subida real de peso, sugerir subir 150-300 kcal (principalmente vía carbohidratos); si se sube más rápido de lo esperado (>0,7-0,8 kg/semana sostenido), sugerir bajar ligeramente
 

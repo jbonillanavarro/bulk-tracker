@@ -107,6 +107,8 @@ const Camera = createLucideIcon(lucide.Camera);
 const X = createLucideIcon(lucide.X);
 const Settings = createLucideIcon(lucide.Settings);
 const Check = createLucideIcon(lucide.Check);
+const Download = createLucideIcon(lucide.Download);
+const Upload = createLucideIcon(lucide.Upload);
 
 const TARGET_KCAL = 2950;
 const TARGET_PROTEIN = 105;
@@ -184,6 +186,9 @@ function App() {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [apiKeySaved, setApiKeySaved] = useState(false);
 
+  const [importError, setImportError] = useState("");
+  const [importSuccess, setImportSuccess] = useState(false);
+
   const [foodName, setFoodName] = useState("");
   const [foodKcal, setFoodKcal] = useState("");
   const [foodProtein, setFoodProtein] = useState("");
@@ -200,6 +205,8 @@ function App() {
   const [foodMode, setFoodMode] = useState("manual");
   const [photoData, setPhotoData] = useState(null);
   const [photoWeight, setPhotoWeight] = useState("");
+  const [photoKnownName, setPhotoKnownName] = useState("");
+  const [photoKnownKcal, setPhotoKnownKcal] = useState("");
   const [estimating, setEstimating] = useState(false);
   const [estimateError, setEstimateError] = useState("");
   const [estimatedFlag, setEstimatedFlag] = useState(false);
@@ -253,7 +260,8 @@ function App() {
 
   const resetFoodForm = () => {
     setFoodName(""); setFoodKcal(""); setFoodProtein(""); setFoodFat(""); setFoodCarbs("");
-    setFoodError(""); setPhotoData(null); setPhotoWeight(""); setEstimateError(""); setEstimatedFlag(false);
+    setFoodError(""); setPhotoData(null); setPhotoWeight("");
+    setPhotoKnownName(""); setPhotoKnownKcal(""); setEstimateError(""); setEstimatedFlag(false);
   };
 
   const handlePhotoSelect = (e) => {
@@ -282,9 +290,15 @@ function App() {
       const weightNote = photoWeight
         ? ` El peso aproximado de esta ración es ${photoWeight}g; ajusta tu estimación a esa cantidad.`
         : " No conozco el peso exacto, estima a partir del tamaño visual de la ración.";
+      const nameNote = photoKnownName.trim()
+        ? ` El plato es: "${photoKnownName.trim()}".`
+        : "";
+      const kcalNote = photoKnownKcal
+        ? ` Ya sé que este plato tiene aproximadamente ${photoKnownKcal} kcal (por ejemplo, por el envase o una fuente externa); usa ese dato como referencia principal para las kcal y ajusta los macros de forma coherente con él.`
+        : "";
       const promptText =
         "Eres un nutricionista estimando las calorías y macronutrientes de un plato de comida a partir de una foto." +
-        weightNote +
+        weightNote + nameNote + kcalNote +
         ' Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin markdown, sin bloques de código, con exactamente estas claves: ' +
         '{"nombre": "string breve describiendo el plato", "kcal": number, "proteina_g": number, "grasa_g": number, "carbohidratos_g": number}. ' +
         "Los valores numéricos deben ser solo números (sin unidades, sin texto).";
@@ -383,6 +397,52 @@ function App() {
     setApiKey("");
   };
 
+  const handleExportBackup = () => {
+    const blob = new Blob([JSON.stringify(allData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bulk-tracker-backup-${todayStr()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportBackup = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setImportError(""); setImportSuccess(false);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("el archivo no tiene el formato esperado.");
+        }
+        for (const key in parsed) {
+          const day = parsed[key];
+          if (!day || typeof day !== "object" || typeof day.date !== "string") {
+            throw new Error("el archivo no es una copia de seguridad válida de Bulk Tracker.");
+          }
+        }
+        const confirmed = window.confirm(
+          "Esto reemplazará todos los datos actuales de la app (peso, comidas, entrenos) por los de este archivo. ¿Continuar?"
+        );
+        if (!confirmed) return;
+        setAllData(parsed);
+        persist(parsed);
+        setImportSuccess(true);
+        setTimeout(() => setImportSuccess(false), 2500);
+      } catch (err) {
+        setImportError("No se pudo restaurar: " + err.message);
+      }
+    };
+    reader.onerror = () => setImportError("No se pudo leer el archivo.");
+    reader.readAsText(file);
+  };
+
   const allDays = useMemo(() => Object.values(allData).sort((a, b) => (a.date < b.date ? -1 : 1)), [allData]);
   const weightHistory = useMemo(() => allDays.filter((d) => d.weight).map((d) => ({ date: d.date, value: d.weight.value })), [allDays]);
   const avg7 = useMemo(() => {
@@ -419,6 +479,8 @@ function App() {
             foodMode={foodMode} setFoodMode={setFoodMode}
             photoData={photoData} handlePhotoSelect={handlePhotoSelect}
             photoWeight={photoWeight} setPhotoWeight={setPhotoWeight}
+            photoKnownName={photoKnownName} setPhotoKnownName={setPhotoKnownName}
+            photoKnownKcal={photoKnownKcal} setPhotoKnownKcal={setPhotoKnownKcal}
             handleEstimatePhoto={handleEstimatePhoto} estimating={estimating}
             estimateError={estimateError} estimatedFlag={estimatedFlag} resetFoodForm={resetFoodForm}
             exerciseType={exerciseType} setExerciseType={setExerciseType}
@@ -483,6 +545,24 @@ function App() {
             <p style={styles.settingsHint}>
               Consíguela en console.anthropic.com → API Keys. El uso para fotos de comida cuesta céntimos al mes.
             </p>
+
+            <div style={styles.settingsDivider} />
+
+            <span style={styles.cardTitle}>Copia de seguridad</span>
+            <p style={styles.settingsBody}>
+              Descarga tus datos (peso, comidas, entrenos) en un archivo, o restaura una copia guardada anteriormente. La clave de API no se incluye.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="bt-btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={handleExportBackup}>
+                <Download size={15} /> Descargar copia de seguridad
+              </button>
+            </div>
+            <label className="bt-btn-ghost" style={{ ...styles.importLabel }}>
+              <Upload size={15} /> Restaurar desde archivo
+              <input type="file" accept="application/json,.json" onChange={handleImportBackup} style={{ display: "none" }} />
+            </label>
+            {importError && <div style={styles.fieldError}>{importError}</div>}
+            {importSuccess && <div style={styles.estimatedHint}>Copia restaurada correctamente.</div>}
           </div>
         </div>
       )}
@@ -497,6 +577,7 @@ function HoyTab(props) {
     foodName, setFoodName, foodKcal, setFoodKcal, foodProtein, setFoodProtein,
     foodFat, setFoodFat, foodCarbs, setFoodCarbs, foodError, handleAddFood, handleDeleteFood,
     foodMode, setFoodMode, photoData, handlePhotoSelect, photoWeight, setPhotoWeight,
+    photoKnownName, setPhotoKnownName, photoKnownKcal, setPhotoKnownKcal,
     handleEstimatePhoto, estimating, estimateError, estimatedFlag, resetFoodForm,
     exerciseType, setExerciseType, exerciseNotes, setExerciseNotes, handleSaveExercise, handleClearExercise,
   } = props;
@@ -578,14 +659,26 @@ function HoyTab(props) {
 
             {photoData && !estimatedFlag && (
               <div style={{ marginTop: 8 }}>
-                <label style={styles.smallLabel}>Peso aprox. en gramos (opcional, mejora la precisión)</label>
-                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                  <input type="number" inputMode="numeric" placeholder="p. ej. 250" value={photoWeight}
-                    onChange={(e) => setPhotoWeight(e.target.value)} style={{ flex: 1 }} />
-                  <button type="button" className="bt-btn-primary" style={{ width: 130 }} onClick={handleEstimatePhoto} disabled={estimating}>
-                    {estimating ? <Loader2 size={14} style={{ animation: "bt-spin 1s linear infinite" }} /> : "Estimar"}
-                  </button>
+                <label style={styles.smallLabel}>Nombre del plato (opcional, ayuda a la estimación)</label>
+                <input type="text" placeholder="p. ej. Pollo al horno con arroz" value={photoKnownName}
+                  onChange={(e) => setPhotoKnownName(e.target.value)} style={{ width: "100%", marginTop: 4, marginBottom: 8 }} />
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={styles.smallLabel}>Peso aprox. en gramos (opcional)</label>
+                    <input type="number" inputMode="numeric" placeholder="p. ej. 250" value={photoWeight}
+                      onChange={(e) => setPhotoWeight(e.target.value)} style={{ width: "100%", marginTop: 4 }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={styles.smallLabel}>Kcal ya conocidas (opcional)</label>
+                    <input type="number" inputMode="numeric" placeholder="p. ej. 450" value={photoKnownKcal}
+                      onChange={(e) => setPhotoKnownKcal(e.target.value)} style={{ width: "100%", marginTop: 4 }} />
+                  </div>
                 </div>
+
+                <button type="button" className="bt-btn-primary" style={{ width: "100%", marginTop: 10 }} onClick={handleEstimatePhoto} disabled={estimating}>
+                  {estimating ? <Loader2 size={14} style={{ animation: "bt-spin 1s linear infinite" }} /> : "Estimar"}
+                </button>
               </div>
             )}
 
@@ -855,6 +948,8 @@ const styles = {
   settingsHint: { color: "#6C7280", fontSize: 11, marginTop: 12, marginBottom: 0 },
   apiKeyRow: { display: "flex", alignItems: "center", justifyContent: "space-between", background: "#23262C", borderRadius: 8, padding: "8px 10px" },
   apiKeyMasked: { color: "#F3F1EC", fontSize: 13, fontFamily: "monospace" },
+  settingsDivider: { borderTop: "1px solid #2C3038", margin: "16px 0 12px" },
+  importLabel: { justifyContent: "center", marginTop: 8, cursor: "pointer" },
 };
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
