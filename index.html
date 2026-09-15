@@ -113,6 +113,8 @@ const Upload = createLucideIcon(lucide.Upload);
 const DEFAULT_TARGETS = { kcal: 2950, protein: 105, fat: 65, carbs: 475 };
 const STORAGE_KEY = "bulk-tracker-data";
 const API_KEY_STORAGE = "bulk-tracker-api-key";
+const GEMINI_KEY_STORAGE = "bulk-tracker-gemini-api-key";
+const PROVIDER_STORAGE = "bulk-tracker-api-provider";
 const TARGETS_STORAGE = "bulk-tracker-targets";
 
 const EXERCISE_TYPES = [
@@ -288,6 +290,25 @@ function saveApiKey(key) {
     return true;
   } catch (e) { return false; }
 }
+function loadGeminiKey() {
+  try { return localStorage.getItem(GEMINI_KEY_STORAGE) || ""; } catch (e) { return ""; }
+}
+function saveGeminiKey(key) {
+  try {
+    if (key) localStorage.setItem(GEMINI_KEY_STORAGE, key);
+    else localStorage.removeItem(GEMINI_KEY_STORAGE);
+    return true;
+  } catch (e) { return false; }
+}
+function loadProvider() {
+  try {
+    const p = localStorage.getItem(PROVIDER_STORAGE);
+    return p === "gemini" ? "gemini" : "claude";
+  } catch (e) { return "claude"; }
+}
+function saveProvider(p) {
+  try { localStorage.setItem(PROVIDER_STORAGE, p); return true; } catch (e) { return false; }
+}
 function loadTargets() {
   try {
     const raw = localStorage.getItem(TARGETS_STORAGE);
@@ -316,9 +337,13 @@ function App() {
   const [allData, setAllData] = useState(() => loadAll());
   const [error, setError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [apiProvider, setApiProvider] = useState(() => loadProvider());
   const [apiKey, setApiKey] = useState(() => loadApiKey());
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState(() => loadGeminiKey());
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState("");
+  const [geminiApiKeySaved, setGeminiApiKeySaved] = useState(false);
 
   const [importError, setImportError] = useState("");
   const [importSuccess, setImportSuccess] = useState(false);
@@ -433,8 +458,13 @@ function App() {
 
   const handleEstimatePhoto = async () => {
     if (!photoData) { setEstimateError("Sube una foto primero."); return; }
-    if (!apiKey) {
-      setEstimateError('Añade tu clave de API en Ajustes (icono de arriba) para usar esta función.');
+    const activeKey = apiProvider === "gemini" ? geminiApiKey : apiKey;
+    if (!activeKey) {
+      setEstimateError(
+        apiProvider === "gemini"
+          ? "Añade tu clave de API de Gemini en Ajustes (icono de arriba) para usar esta función."
+          : "Añade tu clave de API en Ajustes (icono de arriba) para usar esta función."
+      );
       return;
     }
     setEstimating(true); setEstimateError("");
@@ -455,29 +485,55 @@ function App() {
         '{"nombre": "string breve describiendo el plato", "kcal": number, "proteina_g": number, "grasa_g": number, "carbohidratos_g": number}. ' +
         "Los valores numéricos deben ser solo números (sin unidades, sin texto).";
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 500,
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: photoData.mediaType, data: photoData.base64 } },
-              { type: "text", text: promptText },
-            ],
-          }],
-        }),
-      });
-      const data = await response.json();
-      if (data.error) throw new Error(data.error.message || "Error de la API");
-      const textResponse = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      let textResponse;
+      if (apiProvider === "gemini") {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(activeKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: promptText },
+                  { inline_data: { mime_type: photoData.mediaType, data: photoData.base64 } },
+                ],
+              }],
+            }),
+          }
+        );
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message || "Error de la API de Gemini");
+        const candidate = data.candidates && data.candidates[0];
+        textResponse = candidate && candidate.content && candidate.content.parts
+          ? candidate.content.parts.map((p) => p.text || "").join("\n")
+          : "";
+        if (!textResponse) throw new Error("Gemini no devolvió una respuesta utilizable.");
+      } else {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": activeKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 500,
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: photoData.mediaType, data: photoData.base64 } },
+                { type: "text", text: promptText },
+              ],
+            }],
+          }),
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message || "Error de la API");
+        textResponse = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      }
       const cleaned = textResponse.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(cleaned);
 
@@ -557,6 +613,24 @@ function App() {
   const handleClearApiKey = () => {
     saveApiKey("");
     setApiKey("");
+  };
+
+  const handleSaveGeminiKey = () => {
+    saveGeminiKey(geminiApiKeyInput.trim());
+    setGeminiApiKey(geminiApiKeyInput.trim());
+    setGeminiApiKeyInput("");
+    setGeminiApiKeySaved(true);
+    setTimeout(() => setGeminiApiKeySaved(false), 2000);
+  };
+
+  const handleClearGeminiKey = () => {
+    saveGeminiKey("");
+    setGeminiApiKey("");
+  };
+
+  const handleSetProvider = (p) => {
+    setApiProvider(p);
+    saveProvider(p);
   };
 
   const handleSaveTargets = (e) => {
@@ -769,31 +843,69 @@ function App() {
             <div style={styles.settingsDivider} />
 
             <p style={styles.settingsBody}>
-              Clave de API de Anthropic (opcional) — solo hace falta si quieres estimar calorías a partir de una foto.
-              Se guarda únicamente en este dispositivo.
+              Proveedor de IA (opcional) — solo hace falta si quieres estimar calorías a partir de una foto.
+              La clave se guarda únicamente en este dispositivo.
             </p>
-            {apiKey ? (
-              <div style={styles.apiKeyRow}>
-                <span style={styles.apiKeyMasked}>{apiKey.slice(0, 8)}••••••••{apiKey.slice(-4)}</span>
-                <button className="bt-btn-ghost" onClick={handleClearApiKey}>Quitar</button>
+            <div style={styles.modeSwitch}>
+              <button type="button" style={{ ...styles.modeBtn, ...(apiProvider === "claude" ? styles.modeBtnActive : {}) }} onClick={() => handleSetProvider("claude")}>Claude</button>
+              <button type="button" style={{ ...styles.modeBtn, ...(apiProvider === "gemini" ? styles.modeBtnActive : {}) }} onClick={() => handleSetProvider("gemini")}>Gemini (gratis)</button>
+            </div>
+
+            {apiProvider === "claude" ? (
+              <div style={{ marginTop: 10 }}>
+                {apiKey ? (
+                  <div style={styles.apiKeyRow}>
+                    <span style={styles.apiKeyMasked}>{apiKey.slice(0, 8)}••••••••{apiKey.slice(-4)}</span>
+                    <button className="bt-btn-ghost" onClick={handleClearApiKey}>Quitar</button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="password"
+                      placeholder="sk-ant-..."
+                      value={apiKeyInput}
+                      onChange={(e) => setApiKeyInput(e.target.value)}
+                      style={{ width: "100%", marginBottom: 8 }}
+                    />
+                    <button className="bt-btn-primary" style={{ width: "100%" }} onClick={handleSaveApiKey} disabled={!apiKeyInput.trim()}>
+                      {apiKeySaved ? <><Check size={15} /> Guardada</> : "Guardar clave"}
+                    </button>
+                  </div>
+                )}
+                <p style={styles.settingsHint}>
+                  Consíguela en console.anthropic.com → API Keys. El uso para fotos de comida cuesta céntimos al mes.
+                </p>
               </div>
             ) : (
-              <div>
-                <input
-                  type="password"
-                  placeholder="sk-ant-..."
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  style={{ width: "100%", marginBottom: 8 }}
-                />
-                <button className="bt-btn-primary" style={{ width: "100%" }} onClick={handleSaveApiKey} disabled={!apiKeyInput.trim()}>
-                  {apiKeySaved ? <><Check size={15} /> Guardada</> : "Guardar clave"}
-                </button>
+              <div style={{ marginTop: 10 }}>
+                {geminiApiKey ? (
+                  <div style={styles.apiKeyRow}>
+                    <span style={styles.apiKeyMasked}>{geminiApiKey.slice(0, 6)}••••••••{geminiApiKey.slice(-4)}</span>
+                    <button className="bt-btn-ghost" onClick={handleClearGeminiKey}>Quitar</button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="password"
+                      placeholder="AIza..."
+                      value={geminiApiKeyInput}
+                      onChange={(e) => setGeminiApiKeyInput(e.target.value)}
+                      style={{ width: "100%", marginBottom: 8 }}
+                    />
+                    <button className="bt-btn-primary" style={{ width: "100%" }} onClick={handleSaveGeminiKey} disabled={!geminiApiKeyInput.trim()}>
+                      {geminiApiKeySaved ? <><Check size={15} /> Guardada</> : "Guardar clave"}
+                    </button>
+                  </div>
+                )}
+                <p style={styles.settingsHint}>
+                  Consíguela gratis en aistudio.google.com → Get API key.
+                </p>
+                <p style={styles.privacyNotice}>
+                  Aviso de privacidad: en el nivel gratuito de Gemini, Google puede usar las fotos e imágenes que envíes
+                  para mejorar sus modelos. Si prefieres que tus fotos de comida no se usen así, usa Claude en su lugar.
+                </p>
               </div>
             )}
-            <p style={styles.settingsHint}>
-              Consíguela en console.anthropic.com → API Keys. El uso para fotos de comida cuesta céntimos al mes.
-            </p>
 
             <div style={styles.settingsDivider} />
 
@@ -1279,6 +1391,7 @@ const styles = {
   card: { background: "#1D2025", borderRadius: 12, padding: 14, marginBottom: 12 },
   suggestionCard: { background: "#1D2025", borderRadius: 12, padding: 14, marginBottom: 12, border: "1px solid #E2A63B" },
   projectionNote: { color: "#9AA0AB", fontSize: 11, marginTop: 8, lineHeight: 1.4 },
+  privacyNotice: { color: "#E29282", fontSize: 11, marginTop: 8, lineHeight: 1.4 },
   cardHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   cardTitle: { color: "#F3F1EC", fontSize: 14, fontWeight: 600 },
   cardMeta: { color: "#6C7280", fontSize: 11, marginTop: 6 },
