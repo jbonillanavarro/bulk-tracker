@@ -143,7 +143,8 @@ function round(n, dec = 0) {
   const f = Math.pow(10, dec);
   return Math.round((Number(n) || 0) * f) / f;
 }
-function emptyDay(date) { return { date, weight: null, foods: [], exercise: null }; }
+function emptyDay(date) { return { date, weight: null, foods: [], exercise: null, sleepHours: null }; }
+function getSleepHours(day) { return day && typeof day.sleepHours === "number" ? day.sleepHours : null; }
 function dateDiffDays(a, b) {
   const [ay, am, ad] = a.split("-").map(Number);
   const [by, bm, bd] = b.split("-").map(Number);
@@ -213,6 +214,50 @@ function computeWeightProjection(weightHistory) {
   const projectedDate = addDays(currentDate, horizonWeeks * 7);
   const projectedValue = round(currentValue + ratePerWeek * horizonWeeks, 1);
   return { ratePerWeek, currentValue, currentDate, projectedDate, projectedValue, horizonWeeks };
+}
+
+// Umbral de sueño insuficiente: 7h, límite inferior del rango recomendado para adultos por la
+// National Sleep Foundation (7-9h/noche). Déficit "significativo": más de un 15% por debajo del
+// objetivo calórico (fuera de la banda ±10% ya usada para la sugerencia de ajuste de objetivos).
+function evaluateDayDeviation(day, targetKcal) {
+  const sleep = getSleepHours(day);
+  const hasAnyData = day.foods.length > 0 || !!day.weight || !!day.exercise || sleep !== null;
+  if (!hasAnyData) return null;
+  const reasons = [];
+  if (day.foods.length > 0) {
+    const kcal = day.foods.reduce((a, f) => a + (Number(f.kcal) || 0), 0);
+    if (kcal < targetKcal * 0.85) reasons.push("déficit calórico significativo");
+  }
+  if ((day.foods.length > 0 || day.weight) && !day.exercise) reasons.push("sin entreno");
+  if (sleep !== null && sleep < 7) reasons.push("sueño insuficiente");
+  return { hasDeviation: reasons.length > 0, reasons };
+}
+
+// Correlación puramente descriptiva (no causal): compara el cambio de peso del día siguiente
+// a un día desviado del plan frente al de días dentro del plan. Solo se muestra con datos
+// suficientes (al menos 3 pares de cada tipo) para no sacar conclusiones de 1-2 días sueltos.
+function computeDeviationCorrelation(allDays, targetKcal) {
+  const byDate = {};
+  allDays.forEach((d) => { byDate[d.date] = d; });
+  const afterDeviated = [];
+  const afterNormal = [];
+  allDays.forEach((d) => {
+    const evalResult = evaluateDayDeviation(d, targetKcal);
+    if (!evalResult) return;
+    const nextDay = byDate[addDays(d.date, 1)];
+    if (!nextDay || !d.weight || !nextDay.weight) return;
+    const delta = round(nextDay.weight.value - d.weight.value, 2);
+    if (evalResult.hasDeviation) afterDeviated.push(delta);
+    else afterNormal.push(delta);
+  });
+  if (afterDeviated.length < 3 || afterNormal.length < 3) return null;
+  const avg = (arr) => round(arr.reduce((a, b) => a + b, 0) / arr.length, 2);
+  return {
+    avgAfterDeviated: avg(afterDeviated),
+    avgAfterNormal: avg(afterNormal),
+    nDeviated: afterDeviated.length,
+    nNormal: afterNormal.length,
+  };
 }
 
 function loadAll() {
@@ -297,6 +342,9 @@ function App() {
   const [weightInput, setWeightInput] = useState("");
   const [weightError, setWeightError] = useState("");
 
+  const [sleepInput, setSleepInput] = useState("");
+  const [sleepError, setSleepError] = useState("");
+
   const [exerciseType, setExerciseType] = useState("");
   const [exerciseNotes, setExerciseNotes] = useState("");
 
@@ -314,6 +362,7 @@ function App() {
   useEffect(() => {
     const d = allData[currentDate];
     setWeightInput(d && d.weight ? String(d.weight.value) : "");
+    setSleepInput(d && typeof d.sleepHours === "number" ? String(d.sleepHours) : "");
     if (d && d.exercise) {
       setExerciseType(d.exercise.type);
       setExerciseNotes(d.exercise.notes || "");
@@ -322,6 +371,7 @@ function App() {
       setExerciseNotes("");
     }
     setWeightError("");
+    setSleepError("");
     setFoodError("");
   }, [currentDate]);
 
@@ -475,6 +525,16 @@ function App() {
     updateDay(currentDate, (d) => ({ ...d, weight: { value: round(Number(weightInput), 1), time: nowTimeStr() } }));
   };
 
+  const handleSaveSleep = (e) => {
+    e.preventDefault();
+    if (!sleepInput || Number(sleepInput) < 0 || Number(sleepInput) > 24) {
+      setSleepError("Introduce unas horas de sueño válidas (0-24).");
+      return;
+    }
+    setSleepError("");
+    updateDay(currentDate, (d) => ({ ...d, sleepHours: round(Number(sleepInput), 1) }));
+  };
+
   const handleSaveExercise = (e) => {
     e.preventDefault();
     if (!exerciseType) return;
@@ -594,6 +654,7 @@ function App() {
 
   const targetSuggestion = useMemo(() => computeTargetSuggestion(allDays, targets.kcal), [allDays, targets.kcal]);
   const weightProjection = useMemo(() => computeWeightProjection(weightHistory), [weightHistory]);
+  const deviationCorrelation = useMemo(() => computeDeviationCorrelation(allDays, targets.kcal), [allDays, targets.kcal]);
 
   const isToday = currentDate === todayStr();
 
@@ -614,6 +675,7 @@ function App() {
             currentDate={currentDate} setCurrentDate={setCurrentDate} isToday={isToday}
             dayData={dayData} totals={totals} kcalPct={kcalPct} kcalRemaining={kcalRemaining} targets={targets}
             weightInput={weightInput} setWeightInput={setWeightInput} weightError={weightError} handleSaveWeight={handleSaveWeight}
+            sleepInput={sleepInput} setSleepInput={setSleepInput} sleepError={sleepError} handleSaveSleep={handleSaveSleep}
             foodName={foodName} setFoodName={setFoodName}
             foodKcal={foodKcal} setFoodKcal={setFoodKcal}
             foodProtein={foodProtein} setFoodProtein={setFoodProtein}
@@ -643,7 +705,10 @@ function App() {
         )}
 
         {activeTab === "historial" && (
-          <HistorialTab allDays={allDays} onSelectDay={(date) => { setCurrentDate(date); setActiveTab("hoy"); }} />
+          <HistorialTab
+            allDays={allDays} targets={targets} deviationCorrelation={deviationCorrelation}
+            onSelectDay={(date) => { setCurrentDate(date); setActiveTab("hoy"); }}
+          />
         )}
       </div>
 
@@ -758,6 +823,7 @@ function HoyTab(props) {
   const {
     currentDate, setCurrentDate, isToday, dayData, totals, kcalPct, kcalRemaining, targets,
     weightInput, setWeightInput, weightError, handleSaveWeight,
+    sleepInput, setSleepInput, sleepError, handleSaveSleep,
     foodName, setFoodName, foodKcal, setFoodKcal, foodProtein, setFoodProtein,
     foodFat, setFoodFat, foodCarbs, setFoodCarbs, foodError, handleAddFood, handleDeleteFood,
     foodMode, setFoodMode, photoData, handlePhotoSelect, photoWeight, setPhotoWeight,
@@ -811,6 +877,20 @@ function HoyTab(props) {
           <button className="bt-btn-primary" type="submit" style={{ width: 90 }}>Guardar</button>
         </form>
         {weightError && <div style={styles.fieldError}>{weightError}</div>}
+      </section>
+
+      <section style={styles.card}>
+        <div style={styles.cardHeaderRow}>
+          <span style={styles.cardTitle}>Sueño</span>
+          {typeof dayData.sleepHours === "number" && <span style={styles.cardMeta}>guardado</span>}
+        </div>
+        <form onSubmit={handleSaveSleep} style={styles.inlineForm}>
+          <input type="number" step="0.5" min="0" max="24" inputMode="decimal" placeholder="7.5" value={sleepInput}
+            onChange={(e) => setSleepInput(e.target.value)} style={{ flex: 1 }} />
+          <span style={styles.unitLabel}>horas</span>
+          <button className="bt-btn-primary" type="submit" style={{ width: 90 }}>Guardar</button>
+        </form>
+        {sleepError && <div style={styles.fieldError}>{sleepError}</div>}
       </section>
 
       <section style={styles.card}>
@@ -1122,7 +1202,7 @@ function KcalBarChart({ data, target }) {
   );
 }
 
-function HistorialTab({ allDays, onSelectDay }) {
+function HistorialTab({ allDays, targets, deviationCorrelation, onSelectDay }) {
   const sorted = [...allDays].sort((a, b) => (a.date < b.date ? 1 : -1));
   if (sorted.length === 0) {
     return (
@@ -1135,12 +1215,26 @@ function HistorialTab({ allDays, onSelectDay }) {
   }
   return (
     <div>
+      {deviationCorrelation && (
+        <p style={styles.projectionNote}>
+          Observación (no es causalidad, solo un patrón en tus propios datos): tras un día marcado como desviado del plan,
+          el peso del día siguiente cambió de media {deviationCorrelation.avgAfterDeviated >= 0 ? "+" : ""}{deviationCorrelation.avgAfterDeviated} kg
+          (sobre {deviationCorrelation.nDeviated} días), frente a {deviationCorrelation.avgAfterNormal >= 0 ? "+" : ""}{deviationCorrelation.avgAfterNormal} kg
+          tras días dentro del plan (sobre {deviationCorrelation.nNormal} días).
+        </p>
+      )}
       {sorted.map((d) => {
         const kcal = d.foods.reduce((a, f) => a + (Number(f.kcal) || 0), 0);
+        const deviation = evaluateDayDeviation(d, targets.kcal);
         return (
           <button key={d.date} onClick={() => onSelectDay(d.date)} style={styles.historyRow}>
             <div style={{ textAlign: "left" }}>
-              <div style={styles.historyDate}>{formatDateLabel(d.date)}</div>
+              <div style={styles.historyDate}>
+                {formatDateLabel(d.date)}
+                {deviation && deviation.hasDeviation && (
+                  <span style={styles.deviationDot} title={`Desviado del plan: ${deviation.reasons.join(", ")}`} />
+                )}
+              </div>
               <div style={styles.historyMeta}>
                 {d.foods.length > 0 ? `${round(kcal)} kcal` : "sin comidas"}
                 {d.exercise ? ` · ${d.exercise.type}` : ""}
@@ -1215,9 +1309,10 @@ const styles = {
   emptyTitle: { color: "#F3F1EC", fontSize: 15, fontWeight: 600, margin: "12px 0 4px" },
   emptyBody: { color: "#6C7280", fontSize: 13, margin: 0 },
   historyRow: { width: "100%", background: "#1D2025", border: "none", borderRadius: 10, padding: "12px 14px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", textAlign: "left" },
-  historyDate: { color: "#F3F1EC", fontSize: 13, fontWeight: 600 },
+  historyDate: { color: "#F3F1EC", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 },
   historyMeta: { color: "#6C7280", fontSize: 11, marginTop: 2 },
   historyWeight: { color: "#E2A63B", fontSize: 13, fontWeight: 600 },
+  deviationDot: { width: 6, height: 6, borderRadius: "50%", background: "#E29282", display: "inline-block", flexShrink: 0 },
   modalOverlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", zIndex: 20 },
   modalCard: { background: "#1D2025", borderRadius: "16px 16px 0 0", padding: 18, width: "100%", maxWidth: 480, margin: "0 auto" },
   settingsBody: { color: "#9AA0AB", fontSize: 12, lineHeight: 1.5, marginTop: 0, marginBottom: 12 },
