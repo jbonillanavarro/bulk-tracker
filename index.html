@@ -262,6 +262,23 @@ function computeDeviationCorrelation(allDays, targetKcal) {
   };
 }
 
+// Recordatorio de registrar sueño de ayer + aviso si la media reciente (últimos 7 días con
+// dato, mínimo 3 para no ser ruido) está por debajo de las 7h recomendadas por la NSF.
+function computeSleepInsight(allDays) {
+  const today = todayStr();
+  const yesterday = addDays(today, -1);
+  const hasHistory = allDays.some((d) => d.date < today);
+  const yesterdayDay = allDays.find((d) => d.date === yesterday);
+  const missingYesterday = hasHistory && !(yesterdayDay && typeof yesterdayDay.sleepHours === "number");
+  const windowStart = addDays(today, -6);
+  const recentSleeps = allDays
+    .filter((d) => d.date >= windowStart && d.date <= today && typeof d.sleepHours === "number")
+    .map((d) => d.sleepHours);
+  const avgRecent = recentSleeps.length >= 3 ? round(recentSleeps.reduce((a, b) => a + b, 0) / recentSleeps.length, 1) : null;
+  const lowAvg = avgRecent !== null && avgRecent < 7;
+  return { missingYesterday, avgRecent, lowAvg };
+}
+
 function loadAll() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -729,6 +746,7 @@ function App() {
   const targetSuggestion = useMemo(() => computeTargetSuggestion(allDays, targets.kcal), [allDays, targets.kcal]);
   const weightProjection = useMemo(() => computeWeightProjection(weightHistory), [weightHistory]);
   const deviationCorrelation = useMemo(() => computeDeviationCorrelation(allDays, targets.kcal), [allDays, targets.kcal]);
+  const sleepInsight = useMemo(() => computeSleepInsight(allDays), [allDays]);
 
   const isToday = currentDate === todayStr();
 
@@ -749,7 +767,7 @@ function App() {
             currentDate={currentDate} setCurrentDate={setCurrentDate} isToday={isToday}
             dayData={dayData} totals={totals} kcalPct={kcalPct} kcalRemaining={kcalRemaining} targets={targets}
             weightInput={weightInput} setWeightInput={setWeightInput} weightError={weightError} handleSaveWeight={handleSaveWeight}
-            sleepInput={sleepInput} setSleepInput={setSleepInput} sleepError={sleepError} handleSaveSleep={handleSaveSleep}
+            sleepInput={sleepInput} setSleepInput={setSleepInput} sleepError={sleepError} handleSaveSleep={handleSaveSleep} sleepInsight={sleepInsight}
             foodName={foodName} setFoodName={setFoodName}
             foodKcal={foodKcal} setFoodKcal={setFoodKcal}
             foodProtein={foodProtein} setFoodProtein={setFoodProtein}
@@ -935,7 +953,7 @@ function HoyTab(props) {
   const {
     currentDate, setCurrentDate, isToday, dayData, totals, kcalPct, kcalRemaining, targets,
     weightInput, setWeightInput, weightError, handleSaveWeight,
-    sleepInput, setSleepInput, sleepError, handleSaveSleep,
+    sleepInput, setSleepInput, sleepError, handleSaveSleep, sleepInsight,
     foodName, setFoodName, foodKcal, setFoodKcal, foodProtein, setFoodProtein,
     foodFat, setFoodFat, foodCarbs, setFoodCarbs, foodError, handleAddFood, handleDeleteFood,
     foodMode, setFoodMode, photoData, handlePhotoSelect, photoWeight, setPhotoWeight,
@@ -1003,6 +1021,17 @@ function HoyTab(props) {
           <button className="bt-btn-primary" type="submit" style={{ width: 90 }}>Guardar</button>
         </form>
         {sleepError && <div style={styles.fieldError}>{sleepError}</div>}
+        {isToday && sleepInsight && sleepInsight.missingYesterday && (
+          <div style={styles.sleepNotice}>
+            No registraste tus horas de sueño de ayer ({formatDateLabel(addDays(currentDate, -1))}).
+            <button type="button" onClick={() => setCurrentDate(addDays(currentDate, -1))} style={styles.inlineLinkBtn}>Registrarlas</button>
+          </div>
+        )}
+        {isToday && sleepInsight && sleepInsight.lowAvg && (
+          <div style={styles.sleepNotice}>
+            Llevas durmiendo de media {sleepInsight.avgRecent}h esta semana, por debajo de las 7-9h recomendadas para adultos.
+          </div>
+        )}
       </section>
 
       <section style={styles.card}>
@@ -1392,6 +1421,8 @@ const styles = {
   suggestionCard: { background: "#1D2025", borderRadius: 12, padding: 14, marginBottom: 12, border: "1px solid #E2A63B" },
   projectionNote: { color: "#9AA0AB", fontSize: 11, marginTop: 8, lineHeight: 1.4 },
   privacyNotice: { color: "#E29282", fontSize: 11, marginTop: 8, lineHeight: 1.4 },
+  sleepNotice: { color: "#E2A63B", fontSize: 11, marginTop: 8, lineHeight: 1.4 },
+  inlineLinkBtn: { background: "none", border: "none", color: "#E2A63B", fontSize: 11, textDecoration: "underline", padding: 0, marginLeft: 4, cursor: "pointer" },
   cardHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   cardTitle: { color: "#F3F1EC", fontSize: 14, fontWeight: 600 },
   cardMeta: { color: "#6C7280", fontSize: 11, marginTop: 6 },

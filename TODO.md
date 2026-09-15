@@ -27,7 +27,8 @@ Roadmap de funciones pendientes y completadas. Al terminar una tarea, márcala c
 ## Fase 3 — Asistente activo
 
 - [ ] Sugerencias de comida según la hora del día y las calorías/macros que ya lleva la persona ese día. Deben proponer alimentos concretos (ej. "2 yogures griegos + un puñado de almendras"), nunca sugerencias genéricas tipo "come algo proteico"
-- [ ] Aviso/recordatorio visual dentro de la app sobre horas de sueño (no notificación push real, ya que eso requeriría permisos adicionales del navegador/móvil que esta app no gestiona)
+- [x] Aviso/recordatorio visual dentro de la app sobre horas de sueño (no notificación push real, ya que eso requeriría permisos adicionales del navegador/móvil que esta app no gestiona) (hecho 2026-09-15)
+  Combina las dos variantes que pidió el usuario. En la tarjeta de Sueño de Hoy (solo viendo el día actual): (1) si hay historial previo y no se registraron horas de sueño de ayer, aparece un aviso con un botón "Registrarlas" que navega directamente al día anterior; (2) si hay al menos 3 días con dato en la última semana y la media es <7h (umbral NSF), aparece un aviso con esa media. Sin ruido en el primer uso (no avisa de "ayer" si el usuario no tiene ningún día previo registrado) ni con muestras insuficientes.
 
 ## Principios que deben respetarse en cualquier tarea nueva
 
