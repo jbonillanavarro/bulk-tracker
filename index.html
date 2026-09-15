@@ -1359,7 +1359,7 @@ function FoodSuggestions({ totals, targets, aiSuggestions, aiSuggestLoading, aiS
       {items.map((item, i) => (
         <div key={i} style={styles.foodRow}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={styles.foodName}>{item.name}</div>
+            <div style={{ ...styles.foodName, whiteSpace: "normal", overflow: "visible", textOverflow: "clip" }}>{item.name}</div>
             <div style={styles.foodMacros}>{item.protein}p · {item.fat}g · {item.carbs}c</div>
           </div>
           <div style={styles.foodKcal}>{item.kcal}</div>
