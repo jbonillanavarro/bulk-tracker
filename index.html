@@ -445,6 +445,13 @@ function App() {
 
   const allDays = useMemo(() => Object.values(allData).sort((a, b) => (a.date < b.date ? -1 : 1)), [allData]);
   const weightHistory = useMemo(() => allDays.filter((d) => d.weight).map((d) => ({ date: d.date, value: d.weight.value })), [allDays]);
+  const dailyKcalHistory = useMemo(
+    () =>
+      allDays
+        .filter((d) => d.foods.length > 0)
+        .map((d) => ({ date: d.date, kcal: d.foods.reduce((a, f) => a + (Number(f.kcal) || 0), 0) })),
+    [allDays]
+  );
   const avg7 = useMemo(() => {
     const last7 = weightHistory.slice(-7);
     if (last7.length === 0) return null;
@@ -490,7 +497,7 @@ function App() {
         )}
 
         {activeTab === "progreso" && (
-          <ProgresoTab weightHistory={weightHistory} avg7={avg7} allDays={allDays} />
+          <ProgresoTab weightHistory={weightHistory} avg7={avg7} allDays={allDays} dailyKcalHistory={dailyKcalHistory} />
         )}
 
         {activeTab === "historial" && (
@@ -770,7 +777,7 @@ function MacroPill({ label, value, target, unit }) {
   );
 }
 
-function ProgresoTab({ weightHistory, avg7, allDays }) {
+function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory }) {
   if (weightHistory.length === 0) {
     return (
       <div style={styles.emptyState}>
@@ -781,6 +788,7 @@ function ProgresoTab({ weightHistory, avg7, allDays }) {
     );
   }
   const daysLogged = allDays.filter((d) => d.foods.length > 0).length;
+  const recentKcal = dailyKcalHistory.slice(-14);
   return (
     <div>
       <div style={styles.statsRow}>
@@ -797,6 +805,12 @@ function ProgresoTab({ weightHistory, avg7, allDays }) {
         <div style={styles.cardHeaderRow}><span style={styles.cardTitle}>Peso — últimas {weightHistory.length} pesadas</span></div>
         <WeightLineChart data={weightHistory} />
       </section>
+      {recentKcal.length > 0 && (
+        <section style={styles.card}>
+          <div style={styles.cardHeaderRow}><span style={styles.cardTitle}>Calorías — últimos {recentKcal.length} días registrados</span></div>
+          <KcalBarChart data={recentKcal} target={TARGET_KCAL} />
+        </section>
+      )}
       <div style={styles.statsRow}>
         <div style={styles.statCard}>
           <div style={styles.statLabel}>Días registrados</div>
@@ -836,6 +850,44 @@ function WeightLineChart({ data }) {
             <circle cx={p.x} cy={p.y} r={i === points.length - 1 ? 4 : 2.5} fill="#E2A63B" />
             {(i === 0 || i === points.length - 1 || i % showEvery === 0) && (
               <text x={p.x} y={p.y - 8} fontSize="9" fill="#9AA0AB" textAnchor="middle">{p.value}</text>
+            )}
+          </g>
+        ))}
+      </svg>
+      <div style={styles.chartAxisRow}>
+        <span style={styles.chartAxisLabel}>{formatDateLabel(data[0].date)}</span>
+        <span style={styles.chartAxisLabel}>{formatDateLabel(data[data.length - 1].date)}</span>
+      </div>
+    </div>
+  );
+}
+
+function KcalBarChart({ data, target }) {
+  const width = 320, height = 150, padTop = 22, padBottom = 22, padX = 8;
+  const plotHeight = height - padTop - padBottom;
+  const values = data.map((d) => d.kcal);
+  const max = Math.max(...values, target) * 1.08;
+  const slot = (width - padX * 2) / data.length;
+  const barWidth = Math.min(28, slot * 0.6);
+  const targetY = height - padBottom - (target / max) * plotHeight;
+  const showEvery = data.length > 8 ? Math.ceil(data.length / 6) : 1;
+  const bars = data.map((d, i) => {
+    const cx = padX + slot * (i + 0.5);
+    const barHeight = (d.kcal / max) * plotHeight;
+    const y = height - padBottom - barHeight;
+    return { x: cx - barWidth / 2, y, barHeight, value: d.kcal, date: d.date, onTarget: d.kcal >= target };
+  });
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", overflow: "visible" }} role="img" aria-label="Gráfico de calorías diarias">
+        <line x1={padX} y1={round(targetY, 1)} x2={width - padX} y2={round(targetY, 1)} stroke="#6C7280" strokeWidth="1" strokeDasharray="3 3" />
+        <text x={width - padX} y={round(targetY, 1) - 4} fontSize="8" fill="#6C7280" textAnchor="end">objetivo {target.toLocaleString("es-ES")}</text>
+        {bars.map((b, i) => (
+          <g key={i}>
+            <rect x={round(b.x, 1)} y={round(b.y, 1)} width={round(barWidth, 1)} height={round(Math.max(b.barHeight, 1), 1)}
+              rx="2" fill={b.onTarget ? "#4F9B8C" : "#E2A63B"} />
+            {(data.length <= 8 || i === 0 || i === bars.length - 1 || i % showEvery === 0) && (
+              <text x={round(b.x + barWidth / 2, 1)} y={round(b.y, 1) - 4} fontSize="8" fill="#9AA0AB" textAnchor="middle">{round(b.value)}</text>
             )}
           </g>
         ))}
