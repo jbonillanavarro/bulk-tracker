@@ -125,6 +125,63 @@ const EXERCISE_TYPES = [
   "Descanso / cardio suave",
 ];
 
+// Catálogo local de combinaciones de comida concretas (no alimentos sueltos), con kcal/macros
+// aproximados a partir de valores nutricionales habituales. Sirve como sugerencia por defecto,
+// sin necesidad de clave de API ni conexión.
+const FOOD_SUGGESTIONS = [
+  { name: "2 huevos revueltos + 2 tostadas de pan integral", kcal: 380, protein: 22, fat: 18, carbs: 30, tags: ["desayuno"] },
+  { name: "Bol de avena con plátano y miel", kcal: 420, protein: 12, fat: 6, carbs: 78, tags: ["desayuno"] },
+  { name: "Yogur griego con granola y frutos rojos", kcal: 350, protein: 18, fat: 10, carbs: 45, tags: ["desayuno"] },
+  { name: "Tostada de aguacate con huevo poché", kcal: 400, protein: 16, fat: 24, carbs: 28, tags: ["desayuno"] },
+  { name: "Batido de proteína con avena y plátano", kcal: 450, protein: 35, fat: 8, carbs: 55, tags: ["desayuno"] },
+  { name: "Tortitas de avena y plátano (3 uds) con miel", kcal: 480, protein: 16, fat: 10, carbs: 80, tags: ["desayuno"] },
+  { name: "Pechuga de pollo a la plancha con arroz y verduras", kcal: 650, protein: 45, fat: 12, carbs: 80, tags: ["comida"] },
+  { name: "Salmón al horno con patata asada", kcal: 600, protein: 38, fat: 25, carbs: 45, tags: ["comida"] },
+  { name: "Pasta con atún y tomate", kcal: 620, protein: 32, fat: 14, carbs: 85, tags: ["comida"] },
+  { name: "Lentejas estofadas con arroz", kcal: 550, protein: 25, fat: 8, carbs: 90, tags: ["comida"] },
+  { name: "Ternera con puré de patata", kcal: 680, protein: 40, fat: 30, carbs: 55, tags: ["comida"] },
+  { name: "Bowl de arroz, pollo, aguacate y edamame", kcal: 700, protein: 42, fat: 22, carbs: 75, tags: ["comida"] },
+  { name: "2 yogures griegos + un puñado de almendras", kcal: 380, protein: 24, fat: 22, carbs: 20, tags: ["merienda"] },
+  { name: "Batido de proteína con leche", kcal: 250, protein: 30, fat: 5, carbs: 15, tags: ["merienda"] },
+  { name: "Sándwich de pavo y queso", kcal: 350, protein: 22, fat: 12, carbs: 38, tags: ["merienda"] },
+  { name: "Barrita de proteína + plátano", kcal: 320, protein: 20, fat: 8, carbs: 42, tags: ["merienda"] },
+  { name: "Requesón con nueces y miel", kcal: 300, protein: 22, fat: 14, carbs: 22, tags: ["merienda"] },
+  { name: "Tostada con crema de cacahuete y plátano", kcal: 380, protein: 12, fat: 18, carbs: 45, tags: ["merienda"] },
+  { name: "Tortilla de 3 huevos con queso y ensalada", kcal: 420, protein: 28, fat: 30, carbs: 6, tags: ["cena"] },
+  { name: "Pechuga de pavo con boniato asado", kcal: 480, protein: 40, fat: 10, carbs: 55, tags: ["cena"] },
+  { name: "Poke bowl de atún, arroz y aguacate", kcal: 620, protein: 35, fat: 20, carbs: 65, tags: ["cena"] },
+  { name: "Hamburguesa casera de ternera con pan integral", kcal: 650, protein: 35, fat: 30, carbs: 50, tags: ["cena"] },
+  { name: "Salteado de tofu, arroz y verduras", kcal: 500, protein: 22, fat: 15, carbs: 70, tags: ["cena"] },
+  { name: "Pizza casera de pollo y verduras (2 porciones)", kcal: 600, protein: 32, fat: 20, carbs: 68, tags: ["cena"] },
+  { name: "Puñado de frutos secos mixtos (40g)", kcal: 240, protein: 8, fat: 20, carbs: 8, tags: ["cualquiera"] },
+  { name: "Batido de proteína con agua", kcal: 130, protein: 25, fat: 2, carbs: 4, tags: ["cualquiera"] },
+  { name: "Plátano con crema de cacahuete", kcal: 280, protein: 8, fat: 16, carbs: 30, tags: ["cualquiera"] },
+  { name: "Queso fresco con nueces", kcal: 220, protein: 16, fat: 14, carbs: 6, tags: ["cualquiera"] },
+  { name: "Barrita de cereales con proteína", kcal: 200, protein: 15, fat: 6, carbs: 22, tags: ["cualquiera"] },
+  { name: "Manzana con 2 cucharadas de crema de almendra", kcal: 260, protein: 6, fat: 16, carbs: 26, tags: ["cualquiera"] },
+];
+
+// Franja horaria actual, para priorizar combinaciones habituales de esa comida. Fuera de las
+// franjas típicas (madrugada) solo se ofrecen opciones ligeras marcadas como "cualquiera".
+function getMealBucket() {
+  const hour = new Date().getHours();
+  if (hour >= 6 && hour < 11) return "desayuno";
+  if (hour >= 11 && hour < 16) return "comida";
+  if (hour >= 16 && hour < 19) return "merienda";
+  if (hour >= 19 && hour < 23) return "cena";
+  return "cualquiera";
+}
+
+// Elige las 3 combinaciones cuyas kcal más se acercan a lo que falta hoy (con un mínimo de 150
+// kcal como "porción ligera" para no devolver vacío cuando el objetivo ya está cubierto).
+function getFoodSuggestions(remainingKcal, mealBucket) {
+  const targetPortion = Math.max(remainingKcal, 150);
+  return FOOD_SUGGESTIONS.filter((f) => f.tags.includes(mealBucket) || f.tags.includes("cualquiera"))
+    .slice()
+    .sort((a, b) => Math.abs(a.kcal - targetPortion) - Math.abs(b.kcal - targetPortion))
+    .slice(0, 3);
+}
+
 function pad(n) { return String(n).padStart(2, "0"); }
 function toDateStr(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function todayStr() { return toDateStr(new Date()); }
@@ -399,6 +456,10 @@ function App() {
   const [estimateError, setEstimateError] = useState("");
   const [estimatedFlag, setEstimatedFlag] = useState(false);
 
+  const [aiSuggestions, setAiSuggestions] = useState(null);
+  const [aiSuggestLoading, setAiSuggestLoading] = useState(false);
+  const [aiSuggestError, setAiSuggestError] = useState("");
+
   const dayData = allData[currentDate] || emptyDay(currentDate);
 
   useEffect(() => {
@@ -415,6 +476,8 @@ function App() {
     setWeightError("");
     setSleepError("");
     setFoodError("");
+    setAiSuggestions(null);
+    setAiSuggestError("");
   }, [currentDate]);
 
   useEffect(() => {
@@ -585,10 +648,107 @@ function App() {
     updateDay(currentDate, (d) => ({ ...d, foods: [...d.foods, newFood] }));
     resetFoodForm();
     setFoodMode("manual");
+    setAiSuggestions(null);
   };
 
   const handleDeleteFood = (id) => {
     updateDay(currentDate, (d) => ({ ...d, foods: d.foods.filter((f) => f.id !== id) }));
+  };
+
+  const handleAddSuggestedFood = (item) => {
+    const newFood = {
+      id: `${Date.now()}`,
+      name: item.name,
+      kcal: round(item.kcal),
+      protein: round(item.protein),
+      fat: round(item.fat),
+      carbs: round(item.carbs),
+      time: nowTimeStr(),
+    };
+    updateDay(currentDate, (d) => ({ ...d, foods: [...d.foods, newFood] }));
+    setAiSuggestions(null);
+  };
+
+  const handleSuggestWithAI = async () => {
+    const activeKey = apiProvider === "gemini" ? geminiApiKey : apiKey;
+    if (!activeKey) {
+      setAiSuggestError(
+        apiProvider === "gemini"
+          ? "Añade tu clave de API de Gemini en Ajustes para usar esta función."
+          : "Añade tu clave de API en Ajustes para usar esta función."
+      );
+      return;
+    }
+    setAiSuggestLoading(true); setAiSuggestError("");
+    try {
+      const remainingKcal = round(targets.kcal - totals.kcal);
+      const remainingProtein = round(targets.protein - totals.protein);
+      const remainingFat = round(targets.fat - totals.fat);
+      const remainingCarbs = round(targets.carbs - totals.carbs);
+      const mealBucket = getMealBucket();
+      const promptText =
+        "Eres un nutricionista proponiendo comidas concretas (no consejos genéricos) para una persona en fase de volumen (bulking). " +
+        `Ahora mismo toca ${mealBucket === "cualquiera" ? "un tentempié ligero" : mealBucket}. ` +
+        `Le faltan hoy aproximadamente ${remainingKcal} kcal, ${remainingProtein}g de proteína, ${remainingFat}g de grasa y ${remainingCarbs}g de carbohidratos para llegar a su objetivo diario. ` +
+        'Propón exactamente 3 combinaciones de alimentos concretas y variadas (por ejemplo "2 yogures griegos + un puñado de almendras"), nunca consejos genéricos como "come algo proteico". ' +
+        'Responde ÚNICAMENTE con un array JSON válido, sin texto adicional, sin markdown, sin bloques de código, con exactamente este formato: ' +
+        '[{"nombre": "string describiendo la combinación concreta", "kcal": number, "proteina_g": number, "grasa_g": number, "carbohidratos_g": number}, ...]. ' +
+        "Los valores numéricos deben ser solo números (sin unidades, sin texto).";
+
+      let textResponse;
+      if (apiProvider === "gemini") {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(activeKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] }),
+          }
+        );
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message || "Error de la API de Gemini");
+        const candidate = data.candidates && data.candidates[0];
+        textResponse = candidate && candidate.content && candidate.content.parts
+          ? candidate.content.parts.map((p) => p.text || "").join("\n")
+          : "";
+        if (!textResponse) throw new Error("Gemini no devolvió una respuesta utilizable.");
+      } else {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": activeKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 600,
+            messages: [{ role: "user", content: [{ type: "text", text: promptText }] }],
+          }),
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message || "Error de la API");
+        textResponse = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      }
+      const cleaned = textResponse.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Respuesta con formato inesperado.");
+      setAiSuggestions(
+        parsed.slice(0, 3).map((p) => ({
+          name: p.nombre || "Sugerencia",
+          kcal: round(Number(p.kcal) || 0),
+          protein: round(Number(p.proteina_g) || 0),
+          fat: round(Number(p.grasa_g) || 0),
+          carbs: round(Number(p.carbohidratos_g) || 0),
+        }))
+      );
+    } catch (e) {
+      console.error(e);
+      setAiSuggestError("No se pudo pedir sugerencias a la IA (" + e.message + ").");
+    } finally {
+      setAiSuggestLoading(false);
+    }
   };
 
   const handleSaveWeight = (e) => {
@@ -774,6 +934,9 @@ function App() {
             foodFat={foodFat} setFoodFat={setFoodFat}
             foodCarbs={foodCarbs} setFoodCarbs={setFoodCarbs}
             foodError={foodError} handleAddFood={handleAddFood} handleDeleteFood={handleDeleteFood}
+            handleAddSuggestedFood={handleAddSuggestedFood}
+            aiSuggestions={aiSuggestions} aiSuggestLoading={aiSuggestLoading} aiSuggestError={aiSuggestError}
+            handleSuggestWithAI={handleSuggestWithAI}
             foodMode={foodMode} setFoodMode={setFoodMode}
             photoData={photoData} handlePhotoSelect={handlePhotoSelect}
             photoWeight={photoWeight} setPhotoWeight={setPhotoWeight}
@@ -956,6 +1119,7 @@ function HoyTab(props) {
     sleepInput, setSleepInput, sleepError, handleSaveSleep, sleepInsight,
     foodName, setFoodName, foodKcal, setFoodKcal, foodProtein, setFoodProtein,
     foodFat, setFoodFat, foodCarbs, setFoodCarbs, foodError, handleAddFood, handleDeleteFood,
+    handleAddSuggestedFood, aiSuggestions, aiSuggestLoading, aiSuggestError, handleSuggestWithAI,
     foodMode, setFoodMode, photoData, handlePhotoSelect, photoWeight, setPhotoWeight,
     photoKnownName, setPhotoKnownName, photoKnownKcal, setPhotoKnownKcal,
     handleEstimatePhoto, estimating, estimateError, estimatedFlag, resetFoodForm,
@@ -1033,6 +1197,12 @@ function HoyTab(props) {
           </div>
         )}
       </section>
+
+      {isToday && <FoodSuggestions
+        totals={totals} targets={targets}
+        aiSuggestions={aiSuggestions} aiSuggestLoading={aiSuggestLoading} aiSuggestError={aiSuggestError}
+        handleSuggestWithAI={handleSuggestWithAI} handleAddSuggestedFood={handleAddSuggestedFood}
+      />}
 
       <section style={styles.card}>
         <div style={styles.cardHeaderRow}>
@@ -1159,6 +1329,39 @@ function HoyTab(props) {
         {dayData.exercise && <div style={styles.cardMeta}>Guardado {dayData.exercise.time}</div>}
       </section>
     </div>
+  );
+}
+
+function FoodSuggestions({ totals, targets, aiSuggestions, aiSuggestLoading, aiSuggestError, handleSuggestWithAI, handleAddSuggestedFood }) {
+  const mealBucket = getMealBucket();
+  const remainingKcal = round(targets.kcal - totals.kcal);
+  const localSuggestions = useMemo(() => getFoodSuggestions(remainingKcal, mealBucket), [remainingKcal, mealBucket]);
+  const mealLabel = mealBucket === "cualquiera" ? "tentempié ligero" : mealBucket;
+  const items = aiSuggestions || localSuggestions;
+
+  return (
+    <section style={styles.card}>
+      <div style={{ ...styles.cardHeaderRow, flexWrap: "wrap", gap: 6 }}>
+        <span style={styles.cardTitle}>Sugerencias — {mealLabel}</span>
+        <button type="button" className="bt-btn-ghost" style={{ padding: "4px 10px" }} onClick={handleSuggestWithAI} disabled={aiSuggestLoading}>
+          {aiSuggestLoading ? <Loader2 size={13} style={{ animation: "bt-spin 1s linear infinite" }} /> : "Otra (IA)"}
+        </button>
+      </div>
+      {aiSuggestError && <div style={styles.fieldError}>{aiSuggestError}</div>}
+      {aiSuggestions && <div style={styles.estimatedHint}>Sugerido por IA — revisa los valores antes de fiarte del todo.</div>}
+      {items.map((item, i) => (
+        <div key={i} style={styles.foodRow}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={styles.foodName}>{item.name}</div>
+            <div style={styles.foodMacros}>{item.protein}p · {item.fat}g · {item.carbs}c</div>
+          </div>
+          <div style={styles.foodKcal}>{item.kcal}</div>
+          <button className="bt-btn-ghost" style={{ padding: 6 }} onClick={() => handleAddSuggestedFood(item)} aria-label="Añadir esta sugerencia">
+            <Plus size={15} />
+          </button>
+        </div>
+      ))}
+    </section>
   );
 }
 
