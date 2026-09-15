@@ -202,6 +202,11 @@ function round(n, dec = 0) {
   const f = Math.pow(10, dec);
   return Math.round((Number(n) || 0) * f) / f;
 }
+// Los teclados numéricos en móviles en español insertan "," como separador decimal, que
+// <input type="number"> no acepta. Los campos decimales usan type="text" y pasan por aquí.
+function parseDecimal(str) {
+  return Number(String(str).trim().replace(",", "."));
+}
 function emptyDay(date) { return { date, weight: null, foods: [], exercise: null, sleepHours: null }; }
 function getSleepHours(day) { return day && typeof day.sleepHours === "number" ? day.sleepHours : null; }
 function dateDiffDays(a, b) {
@@ -753,19 +758,21 @@ function App() {
 
   const handleSaveWeight = (e) => {
     e.preventDefault();
-    if (!weightInput || Number(weightInput) <= 0) { setWeightError("Introduce un peso válido."); return; }
+    const value = parseDecimal(weightInput);
+    if (!weightInput || !(value > 0)) { setWeightError("Introduce un peso válido."); return; }
     setWeightError("");
-    updateDay(currentDate, (d) => ({ ...d, weight: { value: round(Number(weightInput), 1), time: nowTimeStr() } }));
+    updateDay(currentDate, (d) => ({ ...d, weight: { value: round(value, 1), time: nowTimeStr() } }));
   };
 
   const handleSaveSleep = (e) => {
     e.preventDefault();
-    if (!sleepInput || Number(sleepInput) < 0 || Number(sleepInput) > 24) {
+    const value = parseDecimal(sleepInput);
+    if (!sleepInput || !(value >= 0) || value > 24) {
       setSleepError("Introduce unas horas de sueño válidas (0-24).");
       return;
     }
     setSleepError("");
-    updateDay(currentDate, (d) => ({ ...d, sleepHours: round(Number(sleepInput), 1) }));
+    updateDay(currentDate, (d) => ({ ...d, sleepHours: round(value, 1) }));
   };
 
   const handleSaveExercise = (e) => {
@@ -1165,7 +1172,7 @@ function HoyTab(props) {
           {dayData.weight && <span style={styles.cardMeta}>guardado {dayData.weight.time}</span>}
         </div>
         <form onSubmit={handleSaveWeight} style={styles.inlineForm}>
-          <input type="number" step="0.1" inputMode="decimal" placeholder="51.4" value={weightInput}
+          <input type="text" inputMode="decimal" placeholder="51.4" value={weightInput}
             onChange={(e) => setWeightInput(e.target.value)} style={{ flex: 1 }} />
           <span style={styles.unitLabel}>kg</span>
           <button className="bt-btn-primary" type="submit" style={{ width: 90 }}>Guardar</button>
@@ -1179,7 +1186,7 @@ function HoyTab(props) {
           {typeof dayData.sleepHours === "number" && <span style={styles.cardMeta}>guardado</span>}
         </div>
         <form onSubmit={handleSaveSleep} style={styles.inlineForm}>
-          <input type="number" step="0.5" min="0" max="24" inputMode="decimal" placeholder="7.5" value={sleepInput}
+          <input type="text" inputMode="decimal" placeholder="7.5" value={sleepInput}
             onChange={(e) => setSleepInput(e.target.value)} style={{ flex: 1 }} />
           <span style={styles.unitLabel}>horas</span>
           <button className="bt-btn-primary" type="submit" style={{ width: 90 }}>Guardar</button>
