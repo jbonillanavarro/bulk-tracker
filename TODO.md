@@ -8,6 +8,8 @@ Roadmap de funciones pendientes y completadas. Al terminar una tarea, márcala c
 - [ ] Separar la pestaña Progreso en dos gráficas independientes: una de peso y otra de calorías diarias (actualmente solo existe la de peso)
 - [ ] Mejorar el modo Foto de comida: permitir añadir como contexto opcional el nombre del alimento y/o las calorías ya conocidas (no solo el peso en gramos), y usarlos en el prompt de estimación
 
+- [ ] Convertir los objetivos nutricionales (TARGET_KCAL, TARGET_PROTEIN, TARGET_FAT, TARGET_CARBS) de constantes fijas en el código a valores editables desde Ajustes y persistidos en localStorage. Añadir lógica de ajuste: si tras 2 semanas cumpliendo el objetivo calórico no hay subida real de peso, sugerir subir 150-300 kcal (principalmente vía carbohidratos); si se sube más rápido de lo esperado (>0,7-0,8 kg/semana sostenido), sugerir bajar ligeramente
+
 ## Fase 2 — Inteligencia sobre los datos
 
 - [ ] Proyección de tendencia de peso a futuro, calculada de forma transparente a partir de la tasa de cambio real de las últimas semanas (no un modelo de caja negra ni una predicción fija a 1 año). Mostrar el cálculo/supuestos usados, no solo el número final. Debe recalcularse automáticamente según se añaden más datos.
