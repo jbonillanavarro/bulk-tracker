@@ -58,7 +58,7 @@ Además hay una sugerencia automática (no intrusiva, nunca se aplica sin confir
 ## Estimación de calorías por foto y sugerencias de comida por IA
 Dos proveedores posibles, elegidos en Ajustes (`bulk-tracker-api-provider`):
 - **Claude:** `https://api.anthropic.com/v1/messages` (modelo `claude-sonnet-4-6`), con `x-api-key` y el header `anthropic-dangerous-direct-browser-access: true` (obligatorio para llamadas directas desde navegador).
-- **Gemini:** `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=...` (clave como query param), gratis de forma indefinida pero con el aviso de que Google puede usar las imágenes enviadas para entrenar sus modelos en el tier gratuito — se muestra ese aviso en Ajustes.
+- **Gemini:** `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=...` (clave como query param), gratis de forma indefinida pero con el aviso de que Google puede usar las imágenes enviadas para entrenar sus modelos en el tier gratuito — se muestra ese aviso en Ajustes. **Ojo:** Google va retirando modelos de Gemini con cierta frecuencia (ya pasó una vez con `gemini-2.5-flash`, que dejó de estar disponible para claves nuevas) — si un usuario reporta "modelo no disponible" o similar, comprobar el nombre de modelo vigente antes de asumir que es otro tipo de fallo.
 
 Ambos reciben un prompt pidiendo JSON con `nombre`, `kcal`, `proteina_g`, `grasa_g`, `carbohidratos_g` (o un array de 3 para las sugerencias de comida). Si no hay clave del proveedor activo, se muestra un aviso pidiendo configurarla en Ajustes; el modo Manual y el catálogo local de sugerencias siguen funcionando sin clave.
 
