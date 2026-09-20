@@ -32,6 +32,17 @@ Roadmap de funciones pendientes y completadas. Al terminar una tarea, márcala c
 - [x] Aviso/recordatorio visual dentro de la app sobre horas de sueño (no notificación push real, ya que eso requeriría permisos adicionales del navegador/móvil que esta app no gestiona) (hecho 2026-09-15)
   Combina las dos variantes que pidió el usuario. En la tarjeta de Sueño de Hoy (solo viendo el día actual): (1) si hay historial previo y no se registraron horas de sueño de ayer, aparece un aviso con un botón "Registrarlas" que navega directamente al día anterior; (2) si hay al menos 3 días con dato en la última semana y la media es <7h (umbral NSF), aparece un aviso con esa media. Sin ruido en el primer uso (no avisa de "ayer" si el usuario no tiene ningún día previo registrado) ni con muestras insuficientes.
 
+## Fase 4 — Registro más rico y preciso
+
+- [ ] Registro diario de creatina: una sección en la pestaña Hoy para marcar si se ha tomado la creatina ese día (simple sí/no, sin dosis ni cantidad — como el registro de entreno pero más simple), persistido por día. Los días ya guardados sin este dato deben tratarse como "sin registrar", sin perder ni tocar el resto de su información. Debe verse también de un vistazo en el Historial (por ejemplo un icono o marca junto a cada día en que se tomó).
+
+- [ ] Corregir y recalcular la estimación de calorías por foto de varias formas, no solo aceptar el resultado inicial de la IA tal cual:
+  1. Poder editar el texto/nombre del plato que devolvió la IA (ej. cambiar "espaguetis carbonara" por "espaguetis carbonara con tomate y champiñones") y que la app recalcule las calorías y macros a partir de esa descripción corregida.
+  2. Que la estimación por foto devuelva también un desglose de los alimentos/ingredientes individuales detectados en el plato (cada uno con su parte de las calorías y macros), mostrado como una lista debajo del resultado.
+  3. Poder desmarcar/quitar de esa lista un ingrediente que en realidad no está en el plato, o añadir uno que falte escribiendo su nombre, y que el total de calorías/macros de la comida se recalcule automáticamente según los ingredientes que queden marcados.
+
+  Antes de implementar, decidir con el usuario: si el recálculo (al editar el texto o la lista de ingredientes) se hace volviendo a llamar a la IA (Claude/Gemini) con el contexto corregido, o con alguna lógica local sin gastar otra petición; y si al añadir un ingrediente nuevo a mano sus calorías se estiman con la IA, con un catálogo propio de alimentos comunes, o pidiéndoselas directamente al usuario. Debe funcionar igual con Claude que con Gemini (los dos proveedores ya configurables en Ajustes), y sin romper el flujo actual de añadir comida en modo Manual.
+
 ## Principios que deben respetarse en cualquier tarea nueva
 
 - Toda recomendación numérica (calorías, proteína, frecuencia de entreno, sueño) debe basarse en consensos científicos existentes (ISSN position stands, guías de sueño, etc.), no en cifras inventadas
