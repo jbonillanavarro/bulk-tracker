@@ -124,7 +124,10 @@ const PROVIDER_LABELS = { claude: "Claude", gemini: "Gemini", groq: "Groq", open
 // (2026-09-20). Groq y OpenRouter cambian de modelos disponibles con cierta frecuencia — si
 // un usuario reporta "modelo no disponible", comprobar el nombre vigente antes de asumir otro fallo.
 const GROQ_MODEL = "qwen/qwen3.8-27b";
-const OPENROUTER_MODEL = "inclusionai/ling-3.0-flash-vl:free";
+// Cambiado (2026-09-21) de "inclusionai/ling-3.0-flash-vl:free" a este, de Google, más
+// consolidado: el primero se quedaba colgado sin responder en pruebas reales del usuario.
+const OPENROUTER_MODEL = "google/gemma-4-31b-it:free";
+const AI_REQUEST_TIMEOUT_MS = 45000;
 
 const EXERCISE_TYPES = [
   "Pierna",
@@ -417,6 +420,21 @@ function loadProvider() {
 function saveProvider(p) {
   try { localStorage.setItem(PROVIDER_STORAGE, p); return true; } catch (e) { return false; }
 }
+// Envuelve fetch con un límite de tiempo: si un proveedor de IA se queda colgado sin responder
+// (ha pasado con algún modelo gratuito), esto lanza un error claro en vez de dejar el spinner
+// girando para siempre.
+async function fetchWithTimeout(url, options) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error(`El servidor no respondió en ${AI_REQUEST_TIMEOUT_MS / 1000}s. Prueba otro modelo/proveedor o inténtalo de nuevo.`);
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 // Formato "compatible con OpenAI" que comparten Groq y OpenRouter: /chat/completions,
 // Authorization: Bearer, e imagen opcional como data URL base64 en content[].image_url.url.
 // Verificado contra la documentación oficial de cada uno antes de usarlo (2026-09-20).
@@ -425,7 +443,7 @@ async function callOpenAiCompatible(endpoint, apiKey, model, promptText, imageDa
   if (imageData) {
     content.push({ type: "image_url", image_url: { url: `data:${imageData.mediaType};base64,${imageData.base64}` } });
   }
-  const response = await fetch(endpoint, {
+  const response = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({ model, messages: [{ role: "user", content }] }),
@@ -702,7 +720,7 @@ function App() {
 
       let textResponse;
       if (apiProvider === "gemini") {
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(activeKey)}`,
           {
             method: "POST",
@@ -735,7 +753,7 @@ function App() {
           { mediaType: photoData.mediaType, base64: photoData.base64 }
         );
       } else {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
+        const response = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -866,7 +884,7 @@ function App() {
 
       let textResponse;
       if (apiProvider === "gemini") {
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(activeKey)}`,
           {
             method: "POST",
@@ -886,7 +904,7 @@ function App() {
       } else if (apiProvider === "openrouter") {
         textResponse = await callOpenAiCompatible("https://openrouter.ai/api/v1/chat/completions", activeKey, OPENROUTER_MODEL, promptText);
       } else {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
+        const response = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
