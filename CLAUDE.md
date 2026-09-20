@@ -12,8 +12,8 @@ App personal de seguimiento para un objetivo de ganancia de peso (bulking): regi
 - **Sin backend.** Todo corre en el cliente.
 
 ## Despliegue
-- Repositorio en GitHub conectado a Netlify con auto-deploy: cualquier push a `main` redespliega solo.
-- Build command y publish directory están vacíos en Netlify (no hay build).
+- **GitHub Pages** (cambiado desde Netlify el 2026-09-20): la app vive en `https://jbonillanavarro.github.io/bulk-tracker/`, servida directamente desde la rama `main` del repo (no hay Netlify, no hay `.github/workflows`, no hay build — GitHub Pages clásico "Deploy from a branch"). Cualquier `git push` a `main` redespliega solo, pero el CDN de GitHub Pages (Fastly) cachea hasta 10 min (`Cache-Control: max-age=600`) y el propio navegador/PWA del móvil puede tardar bastante más en darse cuenta de que hay una versión nueva.
+- **Si el usuario reporta que un fix "no funciona" tras confirmar el push:** antes de tocar código, comprobar el contenido servido en producción con `curl` (`curl -s https://jbonillanavarro.github.io/bulk-tracker/index.html | grep <algo del fix>`) para descartar que sea caché del dispositivo antes de asumir que el fix está mal. Si el servidor ya tiene el fix pero el móvil no, el problema es caché del navegador/PWA (borrar la app de la pantalla de inicio, borrar datos de Safari, volver a entrar por la URL y reinstalar), no del código.
 - Archivos del proyecto: `index.html`, `manifest.json` (PWA, permite "Añadir a pantalla de inicio" en móvil), `icon-192.png`, `icon-512.png`.
 - El usuario accede principalmente desde el navegador móvil, instalado como PWA (icono en pantalla de inicio, pantalla completa).
 
@@ -90,4 +90,4 @@ Este proyecto mantiene un archivo `TODO.md` en la raíz con la hoja de ruta de f
 - Cualquier cambio debe mantenerse dentro de `index.html` como archivo único autocontenido (salvo que se decida explícitamente añadir más archivos).
 - Antes de añadir cualquier dependencia externa nueva (CDN de terceros) o de usar un endpoint de API externo por primera vez, verificar contra la documentación real (o el propio bundle/respuesta) que expone la forma esperada — asumir una API incorrecta ya causó fallos en el pasado.
 - Probar siempre en un navegador móvil real antes de dar por buena una función, ya que ya hubo comportamientos que solo fallaban en móvil.
-- El usuario no es programador — las explicaciones de qué hacer (subir a GitHub, revisar Netlify, etc.) deben ser paso a paso y en español.
+- El usuario no es programador — las explicaciones de qué hacer (subir a GitHub, revisar el despliegue de GitHub Pages, etc.) deben ser paso a paso y en español.
