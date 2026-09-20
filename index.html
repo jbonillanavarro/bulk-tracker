@@ -270,26 +270,61 @@ function computeTargetSuggestion(allDays, targetKcal) {
   return null;
 }
 
-// Proyección de peso a 4 semanas, calculada de forma transparente: toma la tasa real de cambio
-// (primera y última pesada de los últimos ~14 días) y la extrapola linealmente. No es un modelo
-// predictivo ni tiene en cuenta cambios futuros de hábitos — es solo "si sigues al ritmo actual".
+// Regresión lineal por mínimos cuadrados (ordinary least squares): el método estadístico
+// estándar para ajustar una recta de tendencia a puntos con ruido, mejor que comparar solo
+// el primer y el último valor porque usa todas las pesadas disponibles a la vez.
+// points: [{x, y}] con x numérico (días desde el primer punto) e y (peso en kg).
+function linearRegression(points) {
+  const n = points.length;
+  const meanX = points.reduce((a, p) => a + p.x, 0) / n;
+  const meanY = points.reduce((a, p) => a + p.y, 0) / n;
+  let ssXY = 0, ssXX = 0, ssYY = 0;
+  points.forEach((p) => {
+    const dx = p.x - meanX, dy = p.y - meanY;
+    ssXY += dx * dy;
+    ssXX += dx * dx;
+    ssYY += dy * dy;
+  });
+  const slope = ssXX === 0 ? 0 : ssXY / ssXX;
+  const intercept = meanY - slope * meanX;
+  const r2 = ssXX === 0 || ssYY === 0 ? null : Math.pow(ssXY / Math.sqrt(ssXX * ssYY), 2);
+  return { slope, intercept, r2 };
+}
+
+// Proyección de peso a 4 semanas mediante regresión lineal (mínimos cuadrados) sobre las pesadas
+// de los últimos 28 días (o todas las que haya, si se lleva registrando menos tiempo). Método
+// estándar para estimar una tendencia a partir de datos con ruido (fluctuación diaria de agua,
+// comida en el estómago, etc. — el mismo motivo por el que apps como TrendWeight o el clásico
+// "Hacker's Diet" no se fían de una sola pesada). No es un modelo predictivo ni tiene en cuenta
+// cambios futuros de hábitos — es solo "si la tendencia actual se mantiene". Se muestran el
+// coeficiente de determinación (r², cuánto se ajusta la recta a los datos reales) y el número de
+// pesadas usadas para ser transparentes con la incertidumbre, sobre todo con pocos datos: con
+// solo 2 puntos la recta siempre "encaja perfecto" (r²=1) aunque no signifique nada todavía.
 function computeWeightProjection(weightHistory) {
-  if (weightHistory.length === 0) return null;
+  if (weightHistory.length < 2) return null;
   const today = todayStr();
-  const windowStart = addDays(today, -13);
+  const windowStart = addDays(today, -27);
   const recent = weightHistory.filter((w) => w.date >= windowStart);
   if (recent.length < 2) return null;
-  const first = recent[0];
-  const last = recent[recent.length - 1];
-  const daySpan = dateDiffDays(first.date, last.date);
-  if (daySpan < 10) return null;
-  const ratePerWeek = round((last.value - first.value) / (daySpan / 7), 2);
-  const currentValue = weightHistory[weightHistory.length - 1].value;
-  const currentDate = weightHistory[weightHistory.length - 1].date;
+  const base = recent[0].date;
+  const points = recent.map((w) => ({ x: dateDiffDays(base, w.date), y: w.value }));
+  const reg = linearRegression(points);
+  const lastEntry = recent[recent.length - 1];
   const horizonWeeks = 4;
-  const projectedDate = addDays(currentDate, horizonWeeks * 7);
-  const projectedValue = round(currentValue + ratePerWeek * horizonWeeks, 1);
-  return { ratePerWeek, currentValue, currentDate, projectedDate, projectedValue, horizonWeeks };
+  const projectedDate = addDays(lastEntry.date, horizonWeeks * 7);
+  const projectedX = dateDiffDays(base, projectedDate);
+  const projectedValue = round(reg.intercept + reg.slope * projectedX, 1);
+  return {
+    ratePerWeek: round(reg.slope * 7, 2),
+    r2: reg.r2 !== null ? round(reg.r2, 2) : null,
+    n: points.length,
+    lowConfidence: points.length < 7,
+    currentValue: lastEntry.value,
+    currentDate: lastEntry.date,
+    projectedDate,
+    projectedValue,
+    horizonWeeks,
+  };
 }
 
 // Umbral de sueño insuficiente: 7h, límite inferior del rango recomendado para adultos por la
@@ -1720,8 +1755,10 @@ function ProgresoTab({ weightHistory, avg7, allDays, dailyKcalHistory, targets, 
         <WeightLineChart data={weightHistory} projection={weightProjection} />
         {weightProjection && (
           <p style={styles.projectionNote}>
-            A este ritmo ({weightProjection.ratePerWeek >= 0 ? "+" : ""}{weightProjection.ratePerWeek} kg/semana de los últimos ~14 días),
+            A este ritmo ({weightProjection.ratePerWeek >= 0 ? "+" : ""}{weightProjection.ratePerWeek} kg/semana, calculado por regresión lineal
+            sobre {weightProjection.n} {weightProjection.n === 1 ? "pesada" : "pesadas"}{weightProjection.r2 !== null ? ` · r²=${weightProjection.r2}` : ""}),
             en {weightProjection.horizonWeeks} semanas ({formatDateLabel(weightProjection.projectedDate)}) pesarías ~{weightProjection.projectedValue} kg.
+            {weightProjection.lowConfidence && " Dato aún preliminar — con pocas pesadas la recta puede cambiar mucho según registres más días."}
           </p>
         )}
       </section>

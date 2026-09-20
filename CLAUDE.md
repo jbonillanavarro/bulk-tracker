@@ -52,7 +52,7 @@ Además hay una sugerencia automática (no intrusiva, nunca se aplica sin confir
 
 ## Funcionalidad actual
 - **Pestaña Hoy:** navegación entre días (flechas), registro de peso, registro de horas de sueño (con recordatorio si falta el dato de ayer o si la media semanal es baja), registro de creatina (botón sí/no), sugerencias de comida concretas por franja horaria y macros restantes (catálogo local + botón opcional "Otra (IA)"), añadir comida en modo **Manual** (campos numéricos) o modo **Foto** (sube foto → la IA configurada rellena los campos automáticamente, con desglose de ingredientes editable y botón "Recalcular" para pedir una nueva estimación tras corregir el nombre del plato), registro de entreno (tipo + notas).
-- **Pestaña Progreso:** gráfico de peso (SVG a mano, con proyección a 4 semanas discontinua) y gráfico de barras de calorías diarias, ambos sin librería externa; medias y estadísticas.
+- **Pestaña Progreso:** gráfico de peso (SVG a mano, con proyección a 4 semanas discontinua calculada por regresión lineal — `computeWeightProjection` / `linearRegression` en el código, funciona desde solo 2 pesadas) y gráfico de barras de calorías diarias, ambos sin librería externa; medias y estadísticas.
 - **Pestaña Historial:** lista de todos los días registrados, navegable, marcando visualmente los días desviados del plan (déficit calórico significativo, sin entreno o poco sueño) y con una observación descriptiva de correlación con el peso del día siguiente.
 - **Ajustes (icono arriba a la derecha):** objetivos nutricionales, selector desplegable de proveedor de IA (Claude / Gemini / Groq / OpenRouter) con su clave respectiva, y exportar/restaurar copia de seguridad en JSON.
 
