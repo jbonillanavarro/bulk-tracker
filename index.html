@@ -700,7 +700,7 @@ function App() {
       const weightNote = photoWeight
         ? ` El peso aproximado de esta ración es ${photoWeight}g; ajusta tu estimación a esa cantidad.`
         : " No conozco el peso exacto, estima a partir del tamaño visual de la ración.";
-      const nameNote = correctedName
+      const nameNote = typeof correctedName === "string" && correctedName.trim()
         ? ` El usuario ha revisado la foto y corrige el plato a: "${correctedName.trim()}". Usa esta descripción corregida como la correcta, aunque difiera de lo que parezca a simple vista en la foto (por ejemplo, ingredientes añadidos o quitados que el usuario conoce mejor que tú).`
         : photoKnownName.trim()
           ? ` El plato es: "${photoKnownName.trim()}".`
@@ -1496,7 +1496,7 @@ function HoyTab(props) {
                   </div>
                 </div>
 
-                <button type="button" className="bt-btn-primary" style={{ width: "100%", marginTop: 10 }} onClick={handleEstimatePhoto} disabled={estimating}>
+                <button type="button" className="bt-btn-primary" style={{ width: "100%", marginTop: 10 }} onClick={() => handleEstimatePhoto()} disabled={estimating}>
                   {estimating ? <Loader2 size={14} style={{ animation: "bt-spin 1s linear infinite" }} /> : "Estimar"}
                 </button>
               </div>
