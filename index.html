@@ -114,8 +114,17 @@ const DEFAULT_TARGETS = { kcal: 2950, protein: 105, fat: 65, carbs: 475 };
 const STORAGE_KEY = "bulk-tracker-data";
 const API_KEY_STORAGE = "bulk-tracker-api-key";
 const GEMINI_KEY_STORAGE = "bulk-tracker-gemini-api-key";
+const GROQ_KEY_STORAGE = "bulk-tracker-groq-api-key";
+const OPENROUTER_KEY_STORAGE = "bulk-tracker-openrouter-api-key";
 const PROVIDER_STORAGE = "bulk-tracker-api-provider";
 const TARGETS_STORAGE = "bulk-tracker-targets";
+const VALID_PROVIDERS = ["claude", "gemini", "groq", "openrouter"];
+const PROVIDER_LABELS = { claude: "Claude", gemini: "Gemini", groq: "Groq", openrouter: "OpenRouter" };
+// Modelos de visión gratuitos verificados en la documentación oficial al añadir cada proveedor
+// (2026-09-20). Groq y OpenRouter cambian de modelos disponibles con cierta frecuencia — si
+// un usuario reporta "modelo no disponible", comprobar el nombre vigente antes de asumir otro fallo.
+const GROQ_MODEL = "qwen/qwen3.8-27b";
+const OPENROUTER_MODEL = "inclusionai/ling-3.0-flash-vl:free";
 
 const EXERCISE_TYPES = [
   "Pierna",
@@ -379,14 +388,53 @@ function saveGeminiKey(key) {
     return true;
   } catch (e) { return false; }
 }
+function loadGroqKey() {
+  try { return localStorage.getItem(GROQ_KEY_STORAGE) || ""; } catch (e) { return ""; }
+}
+function saveGroqKey(key) {
+  try {
+    if (key) localStorage.setItem(GROQ_KEY_STORAGE, key);
+    else localStorage.removeItem(GROQ_KEY_STORAGE);
+    return true;
+  } catch (e) { return false; }
+}
+function loadOpenrouterKey() {
+  try { return localStorage.getItem(OPENROUTER_KEY_STORAGE) || ""; } catch (e) { return ""; }
+}
+function saveOpenrouterKey(key) {
+  try {
+    if (key) localStorage.setItem(OPENROUTER_KEY_STORAGE, key);
+    else localStorage.removeItem(OPENROUTER_KEY_STORAGE);
+    return true;
+  } catch (e) { return false; }
+}
 function loadProvider() {
   try {
     const p = localStorage.getItem(PROVIDER_STORAGE);
-    return p === "gemini" ? "gemini" : "claude";
+    return VALID_PROVIDERS.includes(p) ? p : "claude";
   } catch (e) { return "claude"; }
 }
 function saveProvider(p) {
   try { localStorage.setItem(PROVIDER_STORAGE, p); return true; } catch (e) { return false; }
+}
+// Formato "compatible con OpenAI" que comparten Groq y OpenRouter: /chat/completions,
+// Authorization: Bearer, e imagen opcional como data URL base64 en content[].image_url.url.
+// Verificado contra la documentación oficial de cada uno antes de usarlo (2026-09-20).
+async function callOpenAiCompatible(endpoint, apiKey, model, promptText, imageData) {
+  const content = [{ type: "text", text: promptText }];
+  if (imageData) {
+    content.push({ type: "image_url", image_url: { url: `data:${imageData.mediaType};base64,${imageData.base64}` } });
+  }
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages: [{ role: "user", content }] }),
+  });
+  const data = await response.json();
+  if (data.error) throw new Error((data.error && data.error.message) || "Error de la API");
+  const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (!text) throw new Error("Respuesta sin contenido utilizable.");
+  return text;
 }
 function loadTargets() {
   try {
@@ -423,6 +471,12 @@ function App() {
   const [geminiApiKey, setGeminiApiKey] = useState(() => loadGeminiKey());
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState("");
   const [geminiApiKeySaved, setGeminiApiKeySaved] = useState(false);
+  const [groqApiKey, setGroqApiKey] = useState(() => loadGroqKey());
+  const [groqApiKeyInput, setGroqApiKeyInput] = useState("");
+  const [groqApiKeySaved, setGroqApiKeySaved] = useState(false);
+  const [openrouterApiKey, setOpenrouterApiKey] = useState(() => loadOpenrouterKey());
+  const [openrouterApiKeyInput, setOpenrouterApiKeyInput] = useState("");
+  const [openrouterApiKeySaved, setOpenrouterApiKeySaved] = useState(false);
 
   const [importError, setImportError] = useState("");
   const [importSuccess, setImportSuccess] = useState(false);
@@ -558,13 +612,9 @@ function App() {
 
   const handleEstimatePhoto = async () => {
     if (!photoData) { setEstimateError("Sube una foto primero."); return; }
-    const activeKey = apiProvider === "gemini" ? geminiApiKey : apiKey;
+    const activeKey = { claude: apiKey, gemini: geminiApiKey, groq: groqApiKey, openrouter: openrouterApiKey }[apiProvider];
     if (!activeKey) {
-      setEstimateError(
-        apiProvider === "gemini"
-          ? "Añade tu clave de API de Gemini en Ajustes (icono de arriba) para usar esta función."
-          : "Añade tu clave de API en Ajustes (icono de arriba) para usar esta función."
-      );
+      setEstimateError(`Añade tu clave de API de ${PROVIDER_LABELS[apiProvider]} en Ajustes (icono de arriba) para usar esta función.`);
       return;
     }
     setEstimating(true); setEstimateError("");
@@ -610,6 +660,16 @@ function App() {
           ? candidate.content.parts.map((p) => p.text || "").join("\n")
           : "";
         if (!textResponse) throw new Error("Gemini no devolvió una respuesta utilizable.");
+      } else if (apiProvider === "groq") {
+        textResponse = await callOpenAiCompatible(
+          "https://api.groq.com/openai/v1/chat/completions", activeKey, GROQ_MODEL, promptText,
+          { mediaType: photoData.mediaType, base64: photoData.base64 }
+        );
+      } else if (apiProvider === "openrouter") {
+        textResponse = await callOpenAiCompatible(
+          "https://openrouter.ai/api/v1/chat/completions", activeKey, OPENROUTER_MODEL, promptText,
+          { mediaType: photoData.mediaType, base64: photoData.base64 }
+        );
       } else {
         const response = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
@@ -705,13 +765,9 @@ function App() {
   };
 
   const handleSuggestWithAI = async () => {
-    const activeKey = apiProvider === "gemini" ? geminiApiKey : apiKey;
+    const activeKey = { claude: apiKey, gemini: geminiApiKey, groq: groqApiKey, openrouter: openrouterApiKey }[apiProvider];
     if (!activeKey) {
-      setAiSuggestError(
-        apiProvider === "gemini"
-          ? "Añade tu clave de API de Gemini en Ajustes para usar esta función."
-          : "Añade tu clave de API en Ajustes para usar esta función."
-      );
+      setAiSuggestError(`Añade tu clave de API de ${PROVIDER_LABELS[apiProvider]} en Ajustes para usar esta función.`);
       return;
     }
     setAiSuggestLoading(true); setAiSuggestError("");
@@ -747,6 +803,10 @@ function App() {
           ? candidate.content.parts.map((p) => p.text || "").join("\n")
           : "";
         if (!textResponse) throw new Error("Gemini no devolvió una respuesta utilizable.");
+      } else if (apiProvider === "groq") {
+        textResponse = await callOpenAiCompatible("https://api.groq.com/openai/v1/chat/completions", activeKey, GROQ_MODEL, promptText);
+      } else if (apiProvider === "openrouter") {
+        textResponse = await callOpenAiCompatible("https://openrouter.ai/api/v1/chat/completions", activeKey, OPENROUTER_MODEL, promptText);
       } else {
         const response = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
@@ -840,6 +900,32 @@ function App() {
   const handleClearGeminiKey = () => {
     saveGeminiKey("");
     setGeminiApiKey("");
+  };
+
+  const handleSaveGroqKey = () => {
+    saveGroqKey(groqApiKeyInput.trim());
+    setGroqApiKey(groqApiKeyInput.trim());
+    setGroqApiKeyInput("");
+    setGroqApiKeySaved(true);
+    setTimeout(() => setGroqApiKeySaved(false), 2000);
+  };
+
+  const handleClearGroqKey = () => {
+    saveGroqKey("");
+    setGroqApiKey("");
+  };
+
+  const handleSaveOpenrouterKey = () => {
+    saveOpenrouterKey(openrouterApiKeyInput.trim());
+    setOpenrouterApiKey(openrouterApiKeyInput.trim());
+    setOpenrouterApiKeyInput("");
+    setOpenrouterApiKeySaved(true);
+    setTimeout(() => setOpenrouterApiKeySaved(false), 2000);
+  };
+
+  const handleClearOpenrouterKey = () => {
+    saveOpenrouterKey("");
+    setOpenrouterApiKey("");
   };
 
   const handleSetProvider = (p) => {
@@ -1065,66 +1151,64 @@ function App() {
               Proveedor de IA (opcional) — solo hace falta si quieres estimar calorías a partir de una foto.
               La clave se guarda únicamente en este dispositivo.
             </p>
-            <div style={styles.modeSwitch}>
-              <button type="button" style={{ ...styles.modeBtn, ...(apiProvider === "claude" ? styles.modeBtnActive : {}) }} onClick={() => handleSetProvider("claude")}>Claude</button>
-              <button type="button" style={{ ...styles.modeBtn, ...(apiProvider === "gemini" ? styles.modeBtnActive : {}) }} onClick={() => handleSetProvider("gemini")}>Gemini (gratis)</button>
-            </div>
+            <select value={apiProvider} onChange={(e) => handleSetProvider(e.target.value)} style={{ width: "100%" }}>
+              <option value="claude">Claude</option>
+              <option value="gemini">Gemini (gratis)</option>
+              <option value="groq">Groq (gratis)</option>
+              <option value="openrouter">OpenRouter (gratis)</option>
+            </select>
 
-            {apiProvider === "claude" ? (
-              <div style={{ marginTop: 10 }}>
-                {apiKey ? (
-                  <div style={styles.apiKeyRow}>
-                    <span style={styles.apiKeyMasked}>{apiKey.slice(0, 8)}••••••••{apiKey.slice(-4)}</span>
-                    <button className="bt-btn-ghost" onClick={handleClearApiKey}>Quitar</button>
-                  </div>
-                ) : (
-                  <div>
-                    <input
-                      type="password"
-                      placeholder="sk-ant-..."
-                      value={apiKeyInput}
-                      onChange={(e) => setApiKeyInput(e.target.value)}
-                      style={{ width: "100%", marginBottom: 8 }}
-                    />
-                    <button className="bt-btn-primary" style={{ width: "100%" }} onClick={handleSaveApiKey} disabled={!apiKeyInput.trim()}>
-                      {apiKeySaved ? <><Check size={15} /> Guardada</> : "Guardar clave"}
-                    </button>
-                  </div>
-                )}
-                <p style={styles.settingsHint}>
-                  Consíguela en console.anthropic.com → API Keys. El uso para fotos de comida cuesta céntimos al mes.
-                </p>
-              </div>
-            ) : (
-              <div style={{ marginTop: 10 }}>
-                {geminiApiKey ? (
-                  <div style={styles.apiKeyRow}>
-                    <span style={styles.apiKeyMasked}>{geminiApiKey.slice(0, 6)}••••••••{geminiApiKey.slice(-4)}</span>
-                    <button className="bt-btn-ghost" onClick={handleClearGeminiKey}>Quitar</button>
-                  </div>
-                ) : (
-                  <div>
-                    <input
-                      type="password"
-                      placeholder="AIza..."
-                      value={geminiApiKeyInput}
-                      onChange={(e) => setGeminiApiKeyInput(e.target.value)}
-                      style={{ width: "100%", marginBottom: 8 }}
-                    />
-                    <button className="bt-btn-primary" style={{ width: "100%" }} onClick={handleSaveGeminiKey} disabled={!geminiApiKeyInput.trim()}>
-                      {geminiApiKeySaved ? <><Check size={15} /> Guardada</> : "Guardar clave"}
-                    </button>
-                  </div>
-                )}
-                <p style={styles.settingsHint}>
-                  Consíguela gratis en aistudio.google.com → Get API key.
-                </p>
-                <p style={styles.privacyNotice}>
-                  Aviso de privacidad: en el nivel gratuito de Gemini, Google puede usar las fotos e imágenes que envíes
-                  para mejorar sus modelos. Si prefieres que tus fotos de comida no se usen así, usa Claude en su lugar.
-                </p>
-              </div>
-            )}
+            {(() => {
+              const providerConfig = {
+                claude: {
+                  value: apiKey, inputValue: apiKeyInput, onInputChange: setApiKeyInput,
+                  onSave: handleSaveApiKey, onClear: handleClearApiKey, saved: apiKeySaved,
+                  placeholder: "sk-ant-...", hint: "Consíguela en console.anthropic.com → API Keys. El uso para fotos de comida cuesta céntimos al mes.",
+                },
+                gemini: {
+                  value: geminiApiKey, inputValue: geminiApiKeyInput, onInputChange: setGeminiApiKeyInput,
+                  onSave: handleSaveGeminiKey, onClear: handleClearGeminiKey, saved: geminiApiKeySaved,
+                  placeholder: "AIza...", hint: "Consíguela gratis en aistudio.google.com → Get API key.",
+                  privacyNotice: "Aviso de privacidad: en el nivel gratuito de Gemini, Google puede usar las fotos e imágenes que envíes para mejorar sus modelos. Si prefieres que tus fotos de comida no se usen así, usa Claude en su lugar.",
+                },
+                groq: {
+                  value: groqApiKey, inputValue: groqApiKeyInput, onInputChange: setGroqApiKeyInput,
+                  onSave: handleSaveGroqKey, onClear: handleClearGroqKey, saved: groqApiKeySaved,
+                  placeholder: "gsk_...", hint: "Consíguela gratis en console.groq.com → API Keys.",
+                },
+                openrouter: {
+                  value: openrouterApiKey, inputValue: openrouterApiKeyInput, onInputChange: setOpenrouterApiKeyInput,
+                  onSave: handleSaveOpenrouterKey, onClear: handleClearOpenrouterKey, saved: openrouterApiKeySaved,
+                  placeholder: "sk-or-...", hint: "Consíguela en openrouter.ai → Keys. Tiene modelos gratuitos, con un límite de uso (20 peticiones/min, 200/día).",
+                },
+              };
+              const c = providerConfig[apiProvider];
+              return (
+                <div style={{ marginTop: 10 }}>
+                  {c.value ? (
+                    <div style={styles.apiKeyRow}>
+                      <span style={styles.apiKeyMasked}>{c.value.slice(0, 6)}••••••••{c.value.slice(-4)}</span>
+                      <button className="bt-btn-ghost" onClick={c.onClear}>Quitar</button>
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="password"
+                        placeholder={c.placeholder}
+                        value={c.inputValue}
+                        onChange={(e) => c.onInputChange(e.target.value)}
+                        style={{ width: "100%", marginBottom: 8 }}
+                      />
+                      <button className="bt-btn-primary" style={{ width: "100%" }} onClick={c.onSave} disabled={!c.inputValue.trim()}>
+                        {c.saved ? <><Check size={15} /> Guardada</> : "Guardar clave"}
+                      </button>
+                    </div>
+                  )}
+                  <p style={styles.settingsHint}>{c.hint}</p>
+                  {c.privacyNotice && <p style={styles.privacyNotice}>{c.privacyNotice}</p>}
+                </div>
+              );
+            })()}
 
             <div style={styles.settingsDivider} />
 
