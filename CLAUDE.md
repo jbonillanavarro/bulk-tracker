@@ -28,7 +28,8 @@ App personal de seguimiento para un objetivo de ganancia de peso (bulking): regi
       { id, name, kcal, protein, fat, carbs, time }
     ],
     exercise: { type, notes, time } | null,
-    sleepHours: 7.5 | null   // opcional; días guardados antes de esta función simplemente no tienen la clave
+    sleepHours: 7.5 | null,   // opcional; días guardados antes de esta función simplemente no tienen la clave
+    creatine: true | false   // opcional; días antiguos sin este campo se tratan como no tomada
   },
   ...
 }
@@ -50,7 +51,7 @@ Además hay una sugerencia automática (no intrusiva, nunca se aplica sin confir
 - La proteína no se toca al aplicar una sugerencia; los ajustes de calorías se hacen sobre todo con carbohidratos.
 
 ## Funcionalidad actual
-- **Pestaña Hoy:** navegación entre días (flechas), registro de peso, registro de horas de sueño (con recordatorio si falta el dato de ayer o si la media semanal es baja), sugerencias de comida concretas por franja horaria y macros restantes (catálogo local + botón opcional "Otra (IA)"), añadir comida en modo **Manual** (campos numéricos) o modo **Foto** (sube foto → la IA configurada rellena los campos automáticamente, editables antes de guardar), registro de entreno (tipo + notas).
+- **Pestaña Hoy:** navegación entre días (flechas), registro de peso, registro de horas de sueño (con recordatorio si falta el dato de ayer o si la media semanal es baja), registro de creatina (botón sí/no), sugerencias de comida concretas por franja horaria y macros restantes (catálogo local + botón opcional "Otra (IA)"), añadir comida en modo **Manual** (campos numéricos) o modo **Foto** (sube foto → la IA configurada rellena los campos automáticamente, con desglose de ingredientes editable y botón "Recalcular" para pedir una nueva estimación tras corregir el nombre del plato), registro de entreno (tipo + notas).
 - **Pestaña Progreso:** gráfico de peso (SVG a mano, con proyección a 4 semanas discontinua) y gráfico de barras de calorías diarias, ambos sin librería externa; medias y estadísticas.
 - **Pestaña Historial:** lista de todos los días registrados, navegable, marcando visualmente los días desviados del plan (déficit calórico significativo, sin entreno o poco sueño) y con una observación descriptiva de correlación con el peso del día siguiente.
 - **Ajustes (icono arriba a la derecha):** objetivos nutricionales, selector desplegable de proveedor de IA (Claude / Gemini / Groq / OpenRouter) con su clave respectiva, y exportar/restaurar copia de seguridad en JSON.
@@ -63,7 +64,14 @@ Cuatro proveedores posibles, elegidos en Ajustes con un `<select>` (`bulk-tracke
 
 **Ojo con los nombres de modelo:** tanto Gemini como Groq y OpenRouter retiran o cambian de modelos disponibles con cierta frecuencia (ya pasó una vez con `gemini-2.5-flash`, que dejó de estar disponible para claves nuevas). Si un usuario reporta "modelo no disponible" o un error parecido con cualquiera de los cuatro proveedores, comprobar el nombre de modelo vigente en la documentación oficial de ese proveedor antes de asumir que es otro tipo de fallo — no dar por buenos los nombres de este documento sin comprobarlo primero.
 
-Los cuatro reciben un prompt pidiendo JSON con `nombre`, `peso_g`, `kcal`, `proteina_g`, `grasa_g`, `carbohidratos_g` (o un array de 3 para las sugerencias de comida). Si no hay clave del proveedor activo, se muestra un aviso pidiendo configurarla en Ajustes; el modo Manual y el catálogo local de sugerencias siguen funcionando sin clave.
+Los cuatro reciben un prompt pidiendo JSON con `nombre`, `peso_g`, `kcal`, `proteina_g`, `grasa_g`, `carbohidratos_g`, `ingredientes` (array con el desglose por alimento individual del plato) — o un array de 3 objetos para las sugerencias de comida. Si no hay clave del proveedor activo, se muestra un aviso pidiendo configurarla en Ajustes; el modo Manual y el catálogo local de sugerencias siguen funcionando sin clave.
+
+## Corregir y recalcular una estimación por foto
+Tras estimar, hay dos vías de corrección independientes, cada una con el mecanismo que tiene más sentido para lo que corrige (decisión tomada explícitamente, no es casualidad que sean distintas):
+- **Corregir el nombre del plato** (botón "Recalcular" junto al campo de nombre): vuelve a llamar a la IA con la foto original y el texto corregido como contexto, porque describe una comida distinta y no se puede recalcular con matemática simple.
+- **Corregir el desglose de ingredientes** (desmarcar uno que no está, quitarlo de la lista, o añadir uno que falta indicando sus propios kcal/proteína/grasa/carbohidratos): se recalcula localmente sumando los ingredientes que queden marcados, sin llamar a la IA otra vez — igual que el reajuste por peso neto (`foodWeightBaseline` / `handleFoodWeightChange`).
+
+Si la respuesta de la IA no incluye `ingredientes` (o vienen vacíos/mal formados), la lista de desglose simplemente no se muestra y el resto del flujo sigue como antes de esta función.
 
 ## Sistema de diseño
 - Paleta oscura tipo "sala de pesas": fondo grafito (`#0E0F12` / `#15171B`), tarjetas `#1D2025`, acento ámbar `#E2A63B` (calorías/energía), verde azulado `#4F9B8C` (proteína/positivo), rojo apagado `#C1614A`/`#E29282` (errores/déficit).

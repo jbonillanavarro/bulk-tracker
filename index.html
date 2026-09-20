@@ -216,7 +216,7 @@ function round(n, dec = 0) {
 function parseDecimal(str) {
   return Number(String(str).trim().replace(",", "."));
 }
-function emptyDay(date) { return { date, weight: null, foods: [], exercise: null, sleepHours: null }; }
+function emptyDay(date) { return { date, weight: null, foods: [], exercise: null, sleepHours: null, creatine: false }; }
 function getSleepHours(day) { return day && typeof day.sleepHours === "number" ? day.sleepHours : null; }
 function dateDiffDays(a, b) {
   const [ay, am, ad] = a.split("-").map(Number);
@@ -516,6 +516,12 @@ function App() {
   const [estimatedFlag, setEstimatedFlag] = useState(false);
   const [foodWeight, setFoodWeight] = useState("");
   const [foodWeightBaseline, setFoodWeightBaseline] = useState(null);
+  const [foodIngredients, setFoodIngredients] = useState([]);
+  const [newIngName, setNewIngName] = useState("");
+  const [newIngKcal, setNewIngKcal] = useState("");
+  const [newIngProtein, setNewIngProtein] = useState("");
+  const [newIngFat, setNewIngFat] = useState("");
+  const [newIngCarbs, setNewIngCarbs] = useState("");
 
   const [aiSuggestions, setAiSuggestions] = useState(null);
   const [aiSuggestLoading, setAiSuggestLoading] = useState(false);
@@ -581,6 +587,7 @@ function App() {
     setFoodError(""); setPhotoData(null); setPhotoWeight("");
     setPhotoKnownName(""); setPhotoKnownKcal(""); setEstimateError(""); setEstimatedFlag(false);
     setFoodWeight(""); setFoodWeightBaseline(null);
+    setFoodIngredients([]); setNewIngName(""); setNewIngKcal(""); setNewIngProtein(""); setNewIngFat(""); setNewIngCarbs("");
   };
 
   const handleFoodWeightChange = (rawValue) => {
@@ -593,6 +600,59 @@ function App() {
     setFoodProtein(String(round(foodWeightBaseline.protein * scale)));
     setFoodFat(String(round(foodWeightBaseline.fat * scale)));
     setFoodCarbs(String(round(foodWeightBaseline.carbs * scale)));
+  };
+
+  // Recalcula los totales de la comida como la suma de los ingredientes marcados como incluidos.
+  // Cálculo local e instantáneo (sin llamar a la IA otra vez), igual que el reajuste por peso.
+  const recomputeFromIngredients = (list) => {
+    const included = list.filter((it) => it.included);
+    setFoodKcal(String(round(included.reduce((a, it) => a + it.kcal, 0))));
+    setFoodProtein(String(round(included.reduce((a, it) => a + it.protein, 0))));
+    setFoodFat(String(round(included.reduce((a, it) => a + it.fat, 0))));
+    setFoodCarbs(String(round(included.reduce((a, it) => a + it.carbs, 0))));
+  };
+
+  const handleToggleIngredient = (id) => {
+    setFoodIngredients((prev) => {
+      const next = prev.map((it) => (it.id === id ? { ...it, included: !it.included } : it));
+      recomputeFromIngredients(next);
+      return next;
+    });
+  };
+
+  const handleRemoveIngredient = (id) => {
+    setFoodIngredients((prev) => {
+      const next = prev.filter((it) => it.id !== id);
+      recomputeFromIngredients(next);
+      return next;
+    });
+  };
+
+  const handleAddIngredient = (e) => {
+    e.preventDefault();
+    if (!newIngName.trim() || !newIngKcal) return;
+    const newItem = {
+      id: `ing-${Date.now()}`,
+      name: newIngName.trim(),
+      kcal: round(parseDecimal(newIngKcal)),
+      protein: round(parseDecimal(newIngProtein) || 0),
+      fat: round(parseDecimal(newIngFat) || 0),
+      carbs: round(parseDecimal(newIngCarbs) || 0),
+      included: true,
+    };
+    setFoodIngredients((prev) => {
+      const next = [...prev, newItem];
+      recomputeFromIngredients(next);
+      return next;
+    });
+    setNewIngName(""); setNewIngKcal(""); setNewIngProtein(""); setNewIngFat(""); setNewIngCarbs("");
+  };
+
+  // Corrección del plato entero (texto distinto, no solo un ingrediente): sí requiere volver a
+  // preguntar a la IA, porque describe una comida distinta y no se puede recalcular con matemática simple.
+  const handleRecalculateFromName = () => {
+    if (!foodName.trim()) return;
+    handleEstimatePhoto(foodName);
   };
 
   const handlePhotoSelect = (e) => {
@@ -610,7 +670,7 @@ function App() {
     reader.readAsDataURL(file);
   };
 
-  const handleEstimatePhoto = async () => {
+  const handleEstimatePhoto = async (correctedName) => {
     if (!photoData) { setEstimateError("Sube una foto primero."); return; }
     const activeKey = { claude: apiKey, gemini: geminiApiKey, groq: groqApiKey, openrouter: openrouterApiKey }[apiProvider];
     if (!activeKey) {
@@ -622,9 +682,11 @@ function App() {
       const weightNote = photoWeight
         ? ` El peso aproximado de esta ración es ${photoWeight}g; ajusta tu estimación a esa cantidad.`
         : " No conozco el peso exacto, estima a partir del tamaño visual de la ración.";
-      const nameNote = photoKnownName.trim()
-        ? ` El plato es: "${photoKnownName.trim()}".`
-        : "";
+      const nameNote = correctedName
+        ? ` El usuario ha revisado la foto y corrige el plato a: "${correctedName.trim()}". Usa esta descripción corregida como la correcta, aunque difiera de lo que parezca a simple vista en la foto (por ejemplo, ingredientes añadidos o quitados que el usuario conoce mejor que tú).`
+        : photoKnownName.trim()
+          ? ` El plato es: "${photoKnownName.trim()}".`
+          : "";
       const kcalNote = photoKnownKcal
         ? ` Ya sé que este plato tiene aproximadamente ${photoKnownKcal} kcal (por ejemplo, por el envase o una fuente externa); usa ese dato como referencia principal para las kcal y ajusta los macros de forma coherente con él.`
         : "";
@@ -632,8 +694,10 @@ function App() {
         "Eres un nutricionista estimando las calorías y macronutrientes de un plato de comida a partir de una foto." +
         weightNote + nameNote + kcalNote +
         ' Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin markdown, sin bloques de código, con exactamente estas claves: ' +
-        '{"nombre": "string breve describiendo el plato", "peso_g": number, "kcal": number, "proteina_g": number, "grasa_g": number, "carbohidratos_g": number}. ' +
+        '{"nombre": "string breve describiendo el plato", "peso_g": number, "kcal": number, "proteina_g": number, "grasa_g": number, "carbohidratos_g": number, ' +
+        '"ingredientes": [{"nombre": "string", "kcal": number, "proteina_g": number, "grasa_g": number, "carbohidratos_g": number}]}. ' +
         "peso_g es el peso neto estimado de la ración en gramos (el que te haya dado el usuario si lo hay, o tu propia estimación visual si no). " +
+        "ingredientes es el desglose de los alimentos individuales detectados en el plato (ej. \"pasta\", \"salsa carbonara\", \"queso\"), cada uno con su parte de las kcal y macros; la suma de sus kcal debe coincidir con el total. " +
         "Los valores numéricos deben ser solo números (sin unidades, sin texto).";
 
       let textResponse;
@@ -717,6 +781,20 @@ function App() {
         setFoodWeight("");
         setFoodWeightBaseline(null);
       }
+      const ingredientesArr = Array.isArray(parsed.ingredientes) ? parsed.ingredientes : [];
+      setFoodIngredients(
+        ingredientesArr
+          .filter((it) => it && it.nombre)
+          .map((it, i) => ({
+            id: `ing-${Date.now()}-${i}`,
+            name: it.nombre,
+            kcal: round(Number(it.kcal) || 0),
+            protein: round(Number(it.proteina_g) || 0),
+            fat: round(Number(it.grasa_g) || 0),
+            carbs: round(Number(it.carbohidratos_g) || 0),
+            included: true,
+          }))
+      );
       setEstimatedFlag(true);
     } catch (e) {
       console.error(e);
@@ -863,6 +941,10 @@ function App() {
     }
     setSleepError("");
     updateDay(currentDate, (d) => ({ ...d, sleepHours: round(value, 1) }));
+  };
+
+  const handleToggleCreatine = () => {
+    updateDay(currentDate, (d) => ({ ...d, creatine: !d.creatine }));
   };
 
   const handleSaveExercise = (e) => {
@@ -1051,6 +1133,7 @@ function App() {
             dayData={dayData} totals={totals} kcalPct={kcalPct} kcalRemaining={kcalRemaining} targets={targets}
             weightInput={weightInput} setWeightInput={setWeightInput} weightError={weightError} handleSaveWeight={handleSaveWeight}
             sleepInput={sleepInput} setSleepInput={setSleepInput} sleepError={sleepError} handleSaveSleep={handleSaveSleep} sleepInsight={sleepInsight}
+            handleToggleCreatine={handleToggleCreatine}
             foodName={foodName} setFoodName={setFoodName}
             foodKcal={foodKcal} setFoodKcal={setFoodKcal}
             foodProtein={foodProtein} setFoodProtein={setFoodProtein}
@@ -1066,6 +1149,11 @@ function App() {
             photoKnownName={photoKnownName} setPhotoKnownName={setPhotoKnownName}
             photoKnownKcal={photoKnownKcal} setPhotoKnownKcal={setPhotoKnownKcal}
             foodWeight={foodWeight} foodWeightBaseline={foodWeightBaseline} handleFoodWeightChange={handleFoodWeightChange}
+            foodIngredients={foodIngredients} handleToggleIngredient={handleToggleIngredient} handleRemoveIngredient={handleRemoveIngredient}
+            newIngName={newIngName} setNewIngName={setNewIngName} newIngKcal={newIngKcal} setNewIngKcal={setNewIngKcal}
+            newIngProtein={newIngProtein} setNewIngProtein={setNewIngProtein} newIngFat={newIngFat} setNewIngFat={setNewIngFat}
+            newIngCarbs={newIngCarbs} setNewIngCarbs={setNewIngCarbs} handleAddIngredient={handleAddIngredient}
+            handleRecalculateFromName={handleRecalculateFromName}
             handleEstimatePhoto={handleEstimatePhoto} estimating={estimating}
             estimateError={estimateError} estimatedFlag={estimatedFlag} resetFoodForm={resetFoodForm}
             exerciseType={exerciseType} setExerciseType={setExerciseType}
@@ -1238,13 +1326,17 @@ function HoyTab(props) {
   const {
     currentDate, setCurrentDate, isToday, dayData, totals, kcalPct, kcalRemaining, targets,
     weightInput, setWeightInput, weightError, handleSaveWeight,
-    sleepInput, setSleepInput, sleepError, handleSaveSleep, sleepInsight,
+    sleepInput, setSleepInput, sleepError, handleSaveSleep, sleepInsight, handleToggleCreatine,
     foodName, setFoodName, foodKcal, setFoodKcal, foodProtein, setFoodProtein,
     foodFat, setFoodFat, foodCarbs, setFoodCarbs, foodError, handleAddFood, handleDeleteFood,
     handleAddSuggestedFood, aiSuggestions, aiSuggestLoading, aiSuggestError, handleSuggestWithAI,
     foodMode, setFoodMode, photoData, handlePhotoSelect, photoWeight, setPhotoWeight,
     photoKnownName, setPhotoKnownName, photoKnownKcal, setPhotoKnownKcal,
     foodWeight, foodWeightBaseline, handleFoodWeightChange,
+    foodIngredients, handleToggleIngredient, handleRemoveIngredient,
+    newIngName, setNewIngName, newIngKcal, setNewIngKcal,
+    newIngProtein, setNewIngProtein, newIngFat, setNewIngFat, newIngCarbs, setNewIngCarbs, handleAddIngredient,
+    handleRecalculateFromName,
     handleEstimatePhoto, estimating, estimateError, estimatedFlag, resetFoodForm,
     exerciseType, setExerciseType, exerciseNotes, setExerciseNotes, handleSaveExercise, handleClearExercise,
   } = props;
@@ -1321,6 +1413,18 @@ function HoyTab(props) {
         )}
       </section>
 
+      <section style={styles.card}>
+        <div style={styles.cardHeaderRow}><span style={styles.cardTitle}>Creatina</span></div>
+        <button
+          type="button"
+          className="bt-btn-primary"
+          style={{ width: "100%", ...(dayData.creatine ? { background: "#4F9B8C", color: "#0E0F12" } : {}) }}
+          onClick={handleToggleCreatine}
+        >
+          {dayData.creatine ? <><Check size={16} /> Tomada hoy</> : "Marcar como tomada"}
+        </button>
+      </section>
+
       {isToday && <FoodSuggestions
         totals={totals} targets={targets}
         aiSuggestions={aiSuggestions} aiSuggestLoading={aiSuggestLoading} aiSuggestError={aiSuggestError}
@@ -1387,13 +1491,51 @@ function HoyTab(props) {
 
         {(foodMode === "manual" || estimatedFlag) && (
           <form onSubmit={handleAddFood}>
-            <input type="text" placeholder="Nombre de la comida" value={foodName}
-              onChange={(e) => setFoodName(e.target.value)} style={{ width: "100%", marginBottom: 8 }} />
+            {estimatedFlag ? (
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <input type="text" placeholder="Nombre de la comida" value={foodName}
+                  onChange={(e) => setFoodName(e.target.value)} style={{ flex: 1 }} />
+                <button type="button" className="bt-btn-ghost" style={{ padding: "0 10px" }} onClick={handleRecalculateFromName} disabled={estimating || !foodName.trim()}>
+                  {estimating ? <Loader2 size={14} style={{ animation: "bt-spin 1s linear infinite" }} /> : "Recalcular"}
+                </button>
+              </div>
+            ) : (
+              <input type="text" placeholder="Nombre de la comida" value={foodName}
+                onChange={(e) => setFoodName(e.target.value)} style={{ width: "100%", marginBottom: 8 }} />
+            )}
             {foodWeightBaseline && (
               <div style={{ marginBottom: 8 }}>
                 <label style={styles.smallLabel}>Peso neto (g) — corrígelo y las kcal/macros se reajustan solas</label>
                 <input type="text" inputMode="decimal" placeholder="250" value={foodWeight}
                   onChange={(e) => handleFoodWeightChange(e.target.value)} style={{ width: "100%", marginTop: 4 }} />
+              </div>
+            )}
+            {estimatedFlag && foodIngredients.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <label style={styles.smallLabel}>Ingredientes detectados — desmarca los que no estén o añade los que falten</label>
+                {foodIngredients.map((ing) => (
+                  <div key={ing.id} style={styles.ingredientRow}>
+                    <label style={styles.ingredientLabel}>
+                      <input type="checkbox" checked={ing.included} onChange={() => handleToggleIngredient(ing.id)} />
+                      <span style={{ textDecoration: ing.included ? "none" : "line-through", opacity: ing.included ? 1 : 0.5 }}>{ing.name}</span>
+                    </label>
+                    <span style={styles.ingredientKcal}>{ing.kcal} kcal</span>
+                    <button type="button" className="bt-btn-ghost" style={{ padding: 4 }} onClick={() => handleRemoveIngredient(ing.id)} aria-label="Quitar ingrediente">
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+                <input type="text" placeholder="Ingrediente que falta (ej. queso parmesano)" value={newIngName}
+                  onChange={(e) => setNewIngName(e.target.value)} style={{ width: "100%", marginTop: 8, marginBottom: 4 }} />
+                <div style={styles.macroInputRow}>
+                  <input type="text" inputMode="decimal" placeholder="kcal" value={newIngKcal} onChange={(e) => setNewIngKcal(e.target.value)} style={{ width: "100%" }} />
+                  <input type="text" inputMode="decimal" placeholder="prot g" value={newIngProtein} onChange={(e) => setNewIngProtein(e.target.value)} style={{ width: "100%" }} />
+                  <input type="text" inputMode="decimal" placeholder="gras g" value={newIngFat} onChange={(e) => setNewIngFat(e.target.value)} style={{ width: "100%" }} />
+                  <input type="text" inputMode="decimal" placeholder="carb g" value={newIngCarbs} onChange={(e) => setNewIngCarbs(e.target.value)} style={{ width: "100%" }} />
+                </div>
+                <button type="button" className="bt-btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 4 }} onClick={handleAddIngredient} disabled={!newIngName.trim() || !newIngKcal}>
+                  <Plus size={14} /> Añadir ingrediente
+                </button>
               </div>
             )}
             <div style={styles.macroInputRow}>
@@ -1712,6 +1854,7 @@ function HistorialTab({ allDays, targets, deviationCorrelation, onSelectDay }) {
               <div style={styles.historyMeta}>
                 {d.foods.length > 0 ? `${round(kcal)} kcal` : "sin comidas"}
                 {d.exercise ? ` · ${d.exercise.type}` : ""}
+                {d.creatine ? " · creatina ✓" : ""}
               </div>
             </div>
             <div style={styles.historyWeight}>{d.weight ? `${d.weight.value} kg` : "—"}</div>
@@ -1774,6 +1917,9 @@ const styles = {
   unitLabel: { color: "#6C7280", fontSize: 13 },
   fieldError: { color: "#E29282", fontSize: 12, marginTop: 6 },
   macroInputRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
+  ingredientRow: { display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: "1px solid #2C3038" },
+  ingredientLabel: { display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, color: "#F3F1EC", fontSize: 13 },
+  ingredientKcal: { color: "#E2A63B", fontSize: 12, fontWeight: 600, minWidth: 44, textAlign: "right" },
   macroInputCol: { display: "flex", flexDirection: "column", gap: 4 },
   smallLabel: { color: "#6C7280", fontSize: 10 },
   foodRow: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid #2C3038" },
